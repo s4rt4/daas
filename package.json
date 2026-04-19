@@ -1,0 +1,10 @@
+{
+  "name": "daas-v3-local",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Local-first docs builder MVP",
+  "scripts": {
+    "dev": "node server.js",
+    "start": "node server.js"
+  }
+}
