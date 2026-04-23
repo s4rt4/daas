@@ -442,7 +442,7 @@ code {
 .workspace-toggle {
   display: inline-flex;
   align-items: center;
-  padding: 4px;
+  padding: 3px;
   border-radius: 999px;
   border: 1px solid rgba(217, 208, 191, 0.82);
   background: rgba(255, 252, 246, 0.9);
@@ -450,13 +450,13 @@ code {
 }
 
 .workspace-toggle-button {
-  min-height: 40px;
-  padding: 0 18px;
+  min-height: 34px;
+  padding: 0 13px;
   border: 0;
   border-radius: 999px;
   background: transparent;
   color: var(--muted);
-  font-size: 14px;
+  font-size: 13px;
   font-weight: 700;
   cursor: pointer;
   transition: background 160ms ease, color 160ms ease, box-shadow 160ms ease;
@@ -572,6 +572,10 @@ a.topbar-open-docs .open-docs-glyph,
 
 .asset-archive {
   background-image: url("/public/assets/file-archive.svg");
+}
+
+.asset-file-code {
+  background-image: url("/public/assets/file-code.svg");
 }
 
 .asset-history {

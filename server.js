@@ -1805,7 +1805,7 @@ function renderAppShell() {
                 <span class="button-icon asset-archive" aria-hidden="true"></span>
               </button>
               <button id="export-html-button" class="icon-button topbar-icon-button" type="button" aria-label="Export Static HTML" title="Export Static HTML">
-                <span class="button-icon asset-layout-panel-top" aria-hidden="true"></span>
+                <span class="button-icon asset-file-code" aria-hidden="true"></span>
               </button>
               <button id="import-markdown-button" class="icon-button topbar-icon-button" type="button" aria-label="Import Markdown" title="Import Markdown">
                 <span class="button-icon asset-file-up" aria-hidden="true"></span>
