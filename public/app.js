@@ -528,6 +528,20 @@ async function publishPage() {
   }
 
   await saveDraftSilently();
+  const draft = getEditorMarkdown();
+  const published = state.currentPage ? state.currentPage.publishedContent || "" : "";
+  const review = buildPublishReview(published, draft);
+  const confirmed = await openConfirmModal({
+    title: currentPageStatus === "published" ? "Publish Update" : "Publish Page",
+    messageHtml: renderPublishReview(review),
+    confirmLabel: currentPageStatus === "published" ? "Publish Update" : "Publish",
+    wide: true,
+  });
+
+  if (!confirmed) {
+    setSaveStatus("Publish canceled");
+    return;
+  }
 
   const response = await fetch("/api/page/publish", {
     method: "POST",
@@ -664,6 +678,75 @@ function exportZipBackup() {
   window.location.href = "/api/export/zip";
 }
 
+function buildPublishReview(before, after) {
+  const beforeLines = String(before || "").split("\n");
+  const afterLines = String(after || "").split("\n");
+  const max = Math.max(beforeLines.length, afterLines.length);
+  let added = 0;
+  let removed = 0;
+  let changed = 0;
+
+  for (let index = 0; index < max; index += 1) {
+    const oldLine = beforeLines[index] || "";
+    const newLine = afterLines[index] || "";
+    if (oldLine === newLine) continue;
+    if (oldLine && newLine) {
+      changed += 1;
+    } else if (newLine) {
+      added += 1;
+    } else {
+      removed += 1;
+    }
+  }
+
+  const words = stripMarkdownForStats(after).split(/\s+/).filter(Boolean).length;
+  const headings = String(after || "").split("\n").filter((line) => /^#{1,3}\s+/.test(line.trim())).length;
+
+  return {
+    added,
+    removed,
+    changed,
+    words,
+    headings,
+    hasChanges: added + removed + changed > 0,
+    preview: summarizeForPublish(after),
+  };
+}
+
+function renderPublishReview(review) {
+  return `<div class="publish-review">
+    <p class="tool-summary">${
+      review.hasChanges
+        ? "Review singkat sebelum draft ini dipublish ke docs publik."
+        : "Tidak ada perubahan konten yang terdeteksi, tapi kamu tetap bisa publish ulang halaman ini."
+    }</p>
+    <div class="publish-stat-grid">
+      <div class="publish-stat"><strong>${review.added}</strong><span>Added lines</span></div>
+      <div class="publish-stat"><strong>${review.changed}</strong><span>Changed lines</span></div>
+      <div class="publish-stat"><strong>${review.removed}</strong><span>Removed lines</span></div>
+      <div class="publish-stat"><strong>${review.words}</strong><span>Words</span></div>
+    </div>
+    <article class="publish-preview-card">
+      <span>${review.headings} heading${review.headings === 1 ? "" : "s"} detected</span>
+      <p>${escapeHtml(review.preview || "Konten kosong.")}</p>
+    </article>
+  </div>`;
+}
+
+function stripMarkdownForStats(markdown) {
+  return String(markdown || "")
+    .replace(/```[\s\S]*?```/g, " ")
+    .replace(/!\[[^\]]*]\([^)]*\)/g, " ")
+    .replace(/\[[^\]]+]\([^)]*\)/g, " ")
+    .replace(/[#>*_`~\-]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function summarizeForPublish(markdown) {
+  return stripMarkdownForStats(markdown).slice(0, 220);
+}
+
 async function importMarkdownArchive(event) {
   const file = event.target.files && event.target.files[0];
   if (!file) return;
@@ -730,25 +813,36 @@ async function recoverDraftHistory() {
     return;
   }
 
-  const list = history
-    .slice(0, 8)
-    .map((entry, index) => {
-      const savedAt = new Date(entry.savedAt).toLocaleString();
-      return `${index + 1}. ${savedAt} - ${entry.summary || entry.title || "Snapshot"}`;
-    })
-    .join("\n");
-
-  const choice = await openPromptModal({
-    title: "Restore Draft",
-    message: `Pilih nomor snapshot yang ingin direstore:\n\n${list}`,
-    placeholder: "Mis. 1",
-    confirmLabel: "Restore",
+  await openAlertModal({
+    title: `Draft History (${history.length})`,
+    messageHtml: renderDraftHistoryList(history),
+    confirmLabel: "Close",
+    wide: true,
   });
+}
 
-  const index = Number(choice) - 1;
-  const selected = history[index];
-  if (!selected) return;
+function renderDraftHistoryList(history) {
+  return `<div class="history-report">
+    <p class="tool-summary">Pilih snapshot untuk mengembalikan draft halaman aktif. Restore hanya mengganti draft, tidak langsung publish.</p>
+    ${history
+      .slice(0, 12)
+      .map((entry) => {
+        const savedAt = new Date(entry.savedAt).toLocaleString();
+        return `<article class="history-card">
+          <div>
+            <strong>${escapeHtml(entry.title || "Draft snapshot")}</strong>
+            <span>${escapeHtml(savedAt)} · ${escapeHtml(entry.reason || "autosave")}</span>
+            <p>${escapeHtml(entry.summary || "Tidak ada ringkasan konten.")}</p>
+          </div>
+          <button class="ghost-button history-restore-button" type="button" data-restore-history="${escapeHtml(entry.id)}">Restore</button>
+        </article>`;
+      })
+      .join("")}
+  </div>`;
+}
 
+async function restoreDraftSnapshot(historyId) {
+  if (!state.selectedSlug || !historyId) return;
   const confirmed = await openConfirmModal({
     title: "Restore Draft",
     message: "Draft sekarang akan diganti dengan snapshot yang dipilih. Lanjutkan?",
@@ -759,7 +853,7 @@ async function recoverDraftHistory() {
   const restoreResponse = await fetch("/api/page/restore", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ slug: state.selectedSlug, historyId: selected.id }),
+    body: JSON.stringify({ slug: state.selectedSlug, historyId }),
   });
 
   if (!restoreResponse.ok) {
@@ -1997,6 +2091,16 @@ function handleModalMessageClick(event) {
     return;
   }
 
+  const restoreHistoryButton = event.target.closest("[data-restore-history]");
+  if (restoreHistoryButton) {
+    const historyId = restoreHistoryButton.dataset.restoreHistory;
+    const resolver = activeModalResolver;
+    closeModal();
+    if (resolver) resolver.resolve(true);
+    restoreDraftSnapshot(historyId);
+    return;
+  }
+
   const button = event.target.closest("[data-open-broken-link]");
   if (!button) return;
 
@@ -2132,8 +2236,8 @@ function openAlertModal({ title, message, messageHtml = "", confirmLabel = "OK",
   return openModal({ title, message, messageHtml, mode: "alert", confirmLabel, wide });
 }
 
-function openConfirmModal({ title, message, confirmLabel = "OK", cancelLabel = "Cancel" }) {
-  return openModal({ title, message, mode: "confirm", confirmLabel, cancelLabel });
+function openConfirmModal({ title, message, messageHtml = "", confirmLabel = "OK", cancelLabel = "Cancel", wide = false }) {
+  return openModal({ title, message, messageHtml, mode: "confirm", confirmLabel, cancelLabel, wide });
 }
 
 function openPromptModal({ title, message, value = "", placeholder = "", confirmLabel = "OK", cancelLabel = "Cancel" }) {

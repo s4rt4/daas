@@ -1844,7 +1844,9 @@ a.topbar-open-docs .open-docs-glyph,
 .health-report,
 .diff-report,
 .media-report,
-.redirect-report {
+.redirect-report,
+.history-report,
+.publish-review {
   display: grid;
   gap: 10px;
   max-height: 54vh;
@@ -1937,6 +1939,70 @@ a.topbar-open-docs .open-docs-glyph,
 .diff-line code {
   overflow-wrap: anywhere;
   white-space: pre-wrap;
+}
+
+.publish-stat-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.publish-stat,
+.publish-preview-card,
+.history-card {
+  border: 1px solid rgba(217, 208, 191, 0.7);
+  border-radius: 18px;
+  background: rgba(255, 252, 245, 0.72);
+}
+
+.publish-stat {
+  display: grid;
+  gap: 4px;
+  padding: 14px;
+}
+
+.publish-stat strong {
+  color: var(--accent);
+  font-size: 22px;
+  line-height: 1;
+}
+
+.publish-stat span,
+.publish-preview-card span,
+.history-card span {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.publish-preview-card {
+  display: grid;
+  gap: 6px;
+  padding: 14px;
+}
+
+.publish-preview-card p,
+.history-card p {
+  margin: 0;
+  color: var(--text);
+}
+
+.history-card {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 14px;
+  padding: 14px;
+}
+
+.history-card div {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.history-restore-button {
+  min-height: 36px;
+  padding-inline: 14px;
 }
 
 .media-card,
