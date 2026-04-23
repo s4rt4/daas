@@ -50,6 +50,7 @@ const server = http.createServer(async (req, res) => {
           section: page.section || "General",
           parentSlug: page.parentSlug || "",
           description: page.description || "",
+          searchText: summarizeSearchText(page.draftContent || page.publishedContent || ""),
           updatedAt: page.updatedAt,
           order: page.order || 0,
           status: page.status || "draft",
@@ -1316,6 +1317,21 @@ function searchPublishedPages(pages, query) {
     }));
 }
 
+function summarizeSearchText(markdown) {
+  return stripInlineMarkdown(markdown || "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 420);
+}
+
+function estimateReadingTime(markdown) {
+  const words = stripInlineMarkdown(markdown || "")
+    .split(/\s+/)
+    .filter(Boolean).length;
+  if (!words) return 1;
+  return Math.max(1, Math.ceil(words / 200));
+}
+
 function getPublishedPages(docs) {
   return docs.pages
     .filter((page) => page.status === "published" && (page.publishedContent || "").trim())
@@ -1534,6 +1550,12 @@ function renderAppShell() {
             </button>
             <input id="page-search-input" class="sidebar-search-input" type="text" placeholder="Cari halaman..." />
           </div>
+          <label class="sidebar-sort-label" for="page-sort-select">Sort</label>
+          <select id="page-sort-select" class="sidebar-sort-select">
+            <option value="manual">Manual order</option>
+            <option value="updated">Last edited</option>
+            <option value="title">A-Z title</option>
+          </select>
           <div id="page-list" class="page-list"></div>
         </div>
       </aside>
@@ -1748,6 +1770,7 @@ function renderDocsPage(docs, currentPage) {
   const sidebar = renderDocsSidebar(orderedPages, currentPage.slug, docs.sections || []);
   const breadcrumbs = renderDocsBreadcrumbs(orderedPages, currentPage);
   const childList = renderDocsChildren(orderedPages, currentPage);
+  const readingTime = estimateReadingTime(currentPage.publishedContent || "");
 
   const toc = rendered.toc.length
     ? rendered.toc
@@ -1794,6 +1817,11 @@ function renderDocsPage(docs, currentPage) {
         <main class="docs-main">
           <article class="docs-prose">
             ${breadcrumbs}
+            <div class="docs-page-meta">
+              <span>${readingTime} min read</span>
+              ${currentPage.version ? `<span>Version ${escapeHtml(currentPage.version)}</span>` : ""}
+              ${currentPage.publishedAt ? `<span>Updated ${escapeHtml(new Date(currentPage.publishedAt).toLocaleDateString("id-ID"))}</span>` : ""}
+            </div>
             ${currentPage.description ? `<p class="preview-description">${escapeHtml(currentPage.description)}</p>` : ""}
             ${rendered.html}
             ${childList}

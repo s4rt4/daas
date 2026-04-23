@@ -8,6 +8,7 @@ const state = {
   versions: ["latest"],
   originalSlug: "",
   currentPage: null,
+  sidebarSort: localStorage.getItem("editor-sidebar-sort") || "manual",
 };
 
 const pageList = document.getElementById("page-list");
@@ -57,6 +58,7 @@ const templatesButton = document.getElementById("templates-button");
 const redirectManagerButton = document.getElementById("redirect-manager-button");
 const newSectionButton = document.getElementById("new-section-button");
 const pageSearchInput = document.getElementById("page-search-input");
+const pageSortSelect = document.getElementById("page-sort-select");
 const sidebarSearchWrap = document.getElementById("sidebar-search-wrap");
 const sidebarSearchToggle = document.getElementById("sidebar-search-toggle");
 const writePanel = document.querySelector('[data-panel="write"]');
@@ -192,6 +194,12 @@ function bindEvents() {
     pageSearchTerm = pageSearchInput.value.trim().toLowerCase();
     renderPageList();
   });
+  pageSortSelect.value = ["manual", "updated", "title"].includes(state.sidebarSort) ? state.sidebarSort : "manual";
+  pageSortSelect.addEventListener("change", () => {
+    state.sidebarSort = pageSortSelect.value;
+    localStorage.setItem("editor-sidebar-sort", state.sidebarSort);
+    renderPageList();
+  });
   pageSearchInput.addEventListener("blur", () => {
     if (!document.body.classList.contains("sidebar-collapsed")) return;
     window.setTimeout(() => {
@@ -283,15 +291,20 @@ function renderPageList() {
     return;
   }
 
-  const sortedPages = [...state.pages]
-    .sort((a, b) => (a.order || 0) - (b.order || 0))
+  const sortedPages = sortSidebarPages([...state.pages])
     .filter((page) => {
       if (!pageSearchTerm) return true;
+      const haystack = [
+        page.title,
+        page.slug,
+        page.section,
+        page.description,
+        page.searchText,
+      ]
+        .join(" ")
+        .toLowerCase();
       return (
-        page.title.toLowerCase().includes(pageSearchTerm) ||
-        page.slug.toLowerCase().includes(pageSearchTerm) ||
-        (page.section || "").toLowerCase().includes(pageSearchTerm) ||
-        (page.description || "").toLowerCase().includes(pageSearchTerm)
+        haystack.includes(pageSearchTerm)
       );
     });
 
@@ -355,6 +368,18 @@ function renderPageList() {
   pageList.querySelectorAll("[data-slug]:not([data-action])").forEach((button) => {
     button.addEventListener("click", () => selectPage(button.dataset.slug));
   });
+}
+
+function sortSidebarPages(pages) {
+  if (state.sidebarSort === "updated") {
+    return pages.sort((a, b) => new Date(b.updatedAt || 0) - new Date(a.updatedAt || 0));
+  }
+
+  if (state.sidebarSort === "title") {
+    return pages.sort((a, b) => a.title.localeCompare(b.title));
+  }
+
+  return pages.sort((a, b) => (a.order || 0) - (b.order || 0));
 }
 
 function handlePageAction(slug, action) {

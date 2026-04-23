@@ -1332,6 +1332,35 @@ a.topbar-open-docs .open-docs-glyph,
   box-shadow: 0 0 0 4px rgba(199, 86, 42, 0.08);
 }
 
+.sidebar-sort-label {
+  display: block;
+  margin-top: 12px;
+  margin-bottom: 6px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: rgba(111, 102, 87, 0.72);
+}
+
+.sidebar-sort-select {
+  width: 100%;
+  height: 36px;
+  padding: 0 11px;
+  border: 1px solid rgba(217, 208, 191, 0.72);
+  border-radius: 12px;
+  background: rgba(255, 252, 245, 0.72);
+  color: var(--text);
+  font: inherit;
+  font-size: 12px;
+}
+
+.sidebar-sort-select:focus {
+  outline: none;
+  border-color: var(--accent-line);
+  box-shadow: 0 0 0 4px rgba(199, 86, 42, 0.08);
+}
+
 .page-card {
   background: transparent;
   border: 0;
@@ -2100,6 +2129,11 @@ body.sidebar-collapsed .sidebar-search-label {
   display: none;
 }
 
+body.sidebar-collapsed .sidebar-sort-label,
+body.sidebar-collapsed .sidebar-sort-select {
+  display: none;
+}
+
 body.sidebar-collapsed .sidebar-search-toggle {
   width: 44px;
   height: 44px;
@@ -2520,6 +2554,28 @@ body.sidebar-collapsed .page-card:focus-within::after {
   margin: 0 auto;
 }
 
+.docs-page-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 0 0 18px;
+}
+
+.docs-page-meta span {
+  display: inline-flex;
+  align-items: center;
+  min-height: 28px;
+  padding: 0 10px;
+  border: 1px solid rgba(214, 198, 175, 0.55);
+  border-radius: 999px;
+  background: rgba(255, 252, 245, 0.5);
+  color: rgba(111, 102, 87, 0.82);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
 .docs-breadcrumbs {
   display: flex;
   flex-wrap: wrap;
@@ -2760,6 +2816,12 @@ body.sidebar-collapsed .page-card:focus-within::after {
 .docs-shell[data-theme="dark"] .docs-prose p code,
 .docs-shell[data-theme="dark"] .docs-prose li code {
   background: rgba(255, 255, 255, 0.06);
+}
+
+.docs-shell[data-theme="dark"] .docs-page-meta span {
+  border-color: rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.05);
+  color: rgba(255, 248, 238, 0.68);
 }
 
 .docs-shell[data-theme="dark"] .save-status,
