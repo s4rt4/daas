@@ -379,7 +379,7 @@ code {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   gap: 12px;
 }
 
@@ -387,15 +387,19 @@ code {
   display: flex;
   align-items: center;
   flex: 1 1 520px;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   gap: 12px;
   min-width: 0;
 }
 
 .editor-heading-row h2 {
   margin: 0;
-  max-width: min(100%, 980px);
-  overflow-wrap: anywhere;
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   font-family: Georgia, "Times New Roman", serif;
   font-size: 30px;
   line-height: 1.05;
@@ -497,6 +501,7 @@ code {
 .page-status {
   display: inline-flex;
   align-items: center;
+  flex: 0 0 auto;
   gap: 7px;
   font-size: 12px;
   font-weight: 700;
