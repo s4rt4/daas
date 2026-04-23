@@ -30,7 +30,7 @@ const server = http.createServer(async (req, res) => {
 
     if (req.method === "GET" && pathname === "/") {
       const docs = readDocs();
-      const firstPage = getPublishedPages(docs)[0];
+      const firstPage = getHomePage(docs);
       redirect(res, firstPage ? `/docs/${firstPage.slug}` : "/app");
       return;
     }
@@ -95,6 +95,8 @@ const server = http.createServer(async (req, res) => {
       validateParentAssignment(docs.pages, normalized, existingPage);
       const now = new Date().toISOString();
       const previousSlugs = mergePreviousSlugs(existingPage, normalized.slug);
+      const newPageStatus = normalizeNewPageStatus((docs.project || {}).newPageStatus);
+      const initialStatus = existingPage ? existingPage.status || "draft" : newPageStatus;
 
       const page = {
         slug: normalized.slug,
@@ -112,10 +114,10 @@ const server = http.createServer(async (req, res) => {
         scheduledAt: normalized.scheduledAt,
         previousSlugs,
         draftContent: normalized.content,
-        publishedContent: existingPage ? existingPage.publishedContent || "" : "",
+        publishedContent: existingPage ? existingPage.publishedContent || "" : initialStatus === "published" ? normalized.content : "",
         updatedAt: now,
-        publishedAt: existingPage ? existingPage.publishedAt || null : null,
-        status: existingPage ? existingPage.status || "draft" : "draft",
+        publishedAt: existingPage ? existingPage.publishedAt || null : initialStatus === "published" ? now : null,
+        status: initialStatus,
         pinned: existingPage ? Boolean(existingPage.pinned) : false,
         order: existingIndex >= 0 ? existingPage.order || existingIndex : docs.pages.length,
         history: existingPage ? appendPageHistory(existingPage, now) : [],
@@ -150,11 +152,7 @@ const server = http.createServer(async (req, res) => {
     if (req.method === "POST" && pathname === "/api/project") {
       const payload = await readBody(req);
       const docs = readDocs();
-      docs.project = {
-        title: String(payload.title || docs.project.title || "DaaS Local Docs").trim(),
-        description: String(payload.description || docs.project.description || "").trim(),
-        defaultTheme: payload.defaultTheme === "dark" ? "dark" : "light",
-      };
+      docs.project = normalizeProjectSettings(payload, docs.project || {});
       docs.versions = normalizeVersions(payload.versions || docs.versions || ["latest"]);
       writeDocs(docs);
       return sendJson(res, { ok: true, project: docs.project, versions: docs.versions });
@@ -237,8 +235,9 @@ const server = http.createServer(async (req, res) => {
     if (req.method === "GET" && pathname === "/api/export/html") {
       const docs = readDocs();
       const archive = createStaticSiteArchive(docs);
-      appendAudit("export-html", { pages: getPublishedPages(docs).length });
-      return sendBinaryDownload(res, archive, `daas-v3-static-${new Date().toISOString().slice(0, 10)}.zip`, "application/zip");
+      const exportPages = getStaticExportPages(docs);
+      appendAudit("export-html", { pages: exportPages.length });
+      return sendBinaryDownload(res, archive, `${docs.project.exportName || "daas-v3-static"}-${new Date().toISOString().slice(0, 10)}.zip`, "application/zip");
     }
 
     if (req.method === "POST" && pathname === "/api/import/markdown") {
@@ -856,6 +855,71 @@ function normalizeScheduledAt(value) {
   return Number.isNaN(date.getTime()) ? "" : date.toISOString();
 }
 
+function normalizeProjectSettings(payload = {}, existing = {}) {
+  const merged = { ...existing, ...payload };
+  const title = String(merged.title || "DaaS Local Docs").trim() || "DaaS Local Docs";
+  const description = String(merged.description || "").trim();
+  const accentColor = normalizeHexColor(merged.accentColor, "#c7562a");
+
+  return {
+    title,
+    description,
+    defaultTheme: merged.defaultTheme === "dark" ? "dark" : "light",
+    brandName: String(merged.brandName || title).trim() || title,
+    navbarLabel: String(merged.navbarLabel || "Local docs MVP").trim() || "Local docs MVP",
+    logoUrl: normalizeAssetUrl(merged.logoUrl),
+    faviconUrl: normalizeAssetUrl(merged.faviconUrl),
+    homeSlug: String(merged.homeSlug || "").trim(),
+    showSearch: normalizeBoolean(merged.showSearch, true),
+    showToc: normalizeBoolean(merged.showToc, true),
+    showEditButton: normalizeBoolean(merged.showEditButton, true),
+    sidebarDefaultCollapsed: normalizeBoolean(merged.sidebarDefaultCollapsed, false),
+    titleSuffix: String(merged.titleSuffix || title).trim() || title,
+    defaultMetaDescription: String(merged.defaultMetaDescription || description).trim(),
+    canonicalBaseUrl: normalizeBaseUrl(merged.canonicalBaseUrl),
+    ogImage: normalizeAssetUrl(merged.ogImage),
+    exportIncludeDrafts: normalizeBoolean(merged.exportIncludeDrafts, false),
+    exportIncludeSearch: normalizeBoolean(merged.exportIncludeSearch, true),
+    exportIncludeUploads: normalizeBoolean(merged.exportIncludeUploads, true),
+    exportName: slugify(String(merged.exportName || "daas-v3-static").trim() || "daas-v3-static") || "daas-v3-static",
+    newPageStatus: normalizeNewPageStatus(merged.newPageStatus),
+    defaultWorkflowStatus: normalizeWorkflowStatus(merged.defaultWorkflowStatus),
+    requireHealthBeforePublish: normalizeBoolean(merged.requireHealthBeforePublish, false),
+    requireSeoBeforePublish: normalizeBoolean(merged.requireSeoBeforePublish, false),
+    accentColor,
+    fontStyle: ["classic", "sans", "mono"].includes(String(merged.fontStyle || "").trim()) ? String(merged.fontStyle).trim() : "classic",
+    contentWidth: ["compact", "comfortable", "wide"].includes(String(merged.contentWidth || "").trim()) ? String(merged.contentWidth).trim() : "comfortable",
+    sidebarDensity: ["compact", "comfortable"].includes(String(merged.sidebarDensity || "").trim()) ? String(merged.sidebarDensity).trim() : "comfortable",
+  };
+}
+
+function normalizeBoolean(value, fallback = false) {
+  if (value === true || value === "true" || value === "on" || value === "1") return true;
+  if (value === false || value === "false" || value === "off" || value === "0") return false;
+  return fallback;
+}
+
+function normalizeHexColor(value, fallback) {
+  const color = String(value || "").trim();
+  return /^#[0-9a-f]{6}$/i.test(color) ? color : fallback;
+}
+
+function normalizeAssetUrl(value) {
+  const url = String(value || "").trim();
+  if (!url) return "";
+  return url.startsWith("/") || /^https?:\/\//i.test(url) ? url : "";
+}
+
+function normalizeBaseUrl(value) {
+  const url = String(value || "").trim().replace(/\/+$/, "");
+  if (!url) return "";
+  return /^https?:\/\//i.test(url) ? url : "";
+}
+
+function normalizeNewPageStatus(value) {
+  return value === "published" ? "published" : "draft";
+}
+
 function normalizeWorkflowStatus(value) {
   const status = String(value || "normal").trim().toLowerCase();
   return ["normal", "needs-review", "archived", "deprecated"].includes(status) ? status : "normal";
@@ -953,12 +1017,7 @@ function migrateDocs(raw) {
       : ["General"];
 
   return {
-      project: {
-        title: "DaaS Local Docs",
-        description: "Dokumentasi lokal yang mudah dipakai tim kecil.",
-        defaultTheme: "light",
-        ...(raw.project || {}),
-      },
+      project: normalizeProjectSettings(raw.project || {}),
       versions: normalizeVersions(raw.versions || ["latest"]),
       sections,
       pages: pages.map((page, index) => {
@@ -1286,7 +1345,7 @@ function createBackupArchive(docs) {
 }
 
 function createStaticSiteArchive(docs) {
-  const publishedPages = getPublishedPages(docs);
+  const publishedPages = getStaticExportPages(docs);
   const entries = [
     {
       name: "index.html",
@@ -1300,11 +1359,23 @@ function createStaticSiteArchive(docs) {
     },
   ];
 
-  for (const assetName of ["theme.js"]) {
+  const staticScripts = ["theme.js", ...(docs.project.exportIncludeSearch && docs.project.showSearch ? ["docs-search.js"] : [])];
+  for (const assetName of staticScripts) {
     const assetPath = path.join(PUBLIC_DIR, assetName);
     if (fs.existsSync(assetPath)) {
       entries.push({ name: `public/${assetName}`, content: fs.readFileSync(assetPath) });
     }
+  }
+
+  if (docs.project.exportIncludeSearch && docs.project.showSearch) {
+    entries.push({
+      name: "public/docs-search-static.js",
+      content: Buffer.from(renderStaticSearchScript(), "utf8"),
+    });
+    entries.push({
+      name: "public/search-index.json",
+      content: Buffer.from(JSON.stringify(buildStaticSearchIndex(publishedPages), null, 2), "utf8"),
+    });
   }
 
   for (const page of publishedPages) {
@@ -1314,7 +1385,7 @@ function createStaticSiteArchive(docs) {
     });
   }
 
-  if (fs.existsSync(UPLOADS_DIR)) {
+  if (docs.project.exportIncludeUploads && fs.existsSync(UPLOADS_DIR)) {
     for (const entry of fs.readdirSync(UPLOADS_DIR, { withFileTypes: true })) {
       if (!entry.isFile()) continue;
       entries.push({
@@ -1556,6 +1627,26 @@ function getPublishedPages(docs) {
   return docs.pages
     .filter((page) => page.status === "published" && (page.publishedContent || "").trim())
     .sort((a, b) => (a.order || 0) - (b.order || 0));
+}
+
+function getStaticExportPages(docs) {
+  if (!docs.project.exportIncludeDrafts) {
+    return getPublishedPages(docs);
+  }
+
+  return docs.pages
+    .filter((page) => ((page.publishedContent || page.draftContent || "")).trim())
+    .map((page) => ({
+      ...page,
+      publishedContent: page.publishedContent || page.draftContent || "",
+      status: "published",
+    }))
+    .sort((a, b) => (a.order || 0) - (b.order || 0));
+}
+
+function getHomePage(docs) {
+  const pages = getPublishedPages(docs);
+  return pages.find((page) => page.slug === docs.project.homeSlug) || pages[0] || null;
 }
 
 function makeUniqueSlug(baseSlug, pages) {
@@ -2008,16 +2099,47 @@ function renderAppShell() {
 </html>`;
 }
 
+function renderProjectStyle(project) {
+  const accent = normalizeHexColor(project.accentColor, "#c7562a");
+  const rgb = hexToRgb(accent);
+  return [
+    `--accent:${accent}`,
+    `--accent-soft:rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, 0.12)`,
+    `--accent-line:rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, 0.28)`,
+  ].join(";");
+}
+
+function hexToRgb(hex) {
+  const normalized = normalizeHexColor(hex, "#c7562a").slice(1);
+  const value = Number.parseInt(normalized, 16);
+  return {
+    r: (value >> 16) & 255,
+    g: (value >> 8) & 255,
+    b: value & 255,
+  };
+}
+
+function buildCanonicalUrl(baseUrl, slug) {
+  return baseUrl ? `${baseUrl}/docs/${slug}` : "";
+}
+
 function renderDocsPage(docs, currentPage) {
   const rendered = renderMarkdown(currentPage.publishedContent || "");
   const pageTitle = currentPage.metaTitle || currentPage.title;
-  const pageDescription = currentPage.metaDescription || currentPage.description || docs.project.description || "";
-  const canonicalUrl = currentPage.canonicalUrl || "";
+  const titleSuffix = docs.project.titleSuffix || docs.project.title;
+  const fullPageTitle = titleSuffix ? `${pageTitle} | ${titleSuffix}` : pageTitle;
+  const pageDescription =
+    currentPage.metaDescription ||
+    currentPage.description ||
+    docs.project.defaultMetaDescription ||
+    docs.project.description ||
+    "";
+  const canonicalUrl = currentPage.canonicalUrl || buildCanonicalUrl(docs.project.canonicalBaseUrl, currentPage.slug);
   const orderedPages = getPublishedPages(docs);
   const currentIndex = orderedPages.findIndex((page) => page.slug === currentPage.slug);
   const prevPage = currentIndex > 0 ? orderedPages[currentIndex - 1] : null;
   const nextPage = currentIndex >= 0 && currentIndex < orderedPages.length - 1 ? orderedPages[currentIndex + 1] : null;
-  const sidebar = renderDocsSidebar(orderedPages, currentPage.slug, docs.sections || []);
+  const sidebar = renderDocsSidebar(orderedPages, currentPage.slug, docs.sections || [], docs.project);
   const breadcrumbs = renderDocsBreadcrumbs(orderedPages, currentPage);
   const childList = renderDocsChildren(orderedPages, currentPage);
   const readingTime = estimateReadingTime(currentPage.publishedContent || "");
@@ -2032,29 +2154,60 @@ function renderDocsPage(docs, currentPage) {
         .join("")
     : `<p class="toc-empty">Tambahkan heading agar ToC muncul.</p>`;
 
+  const shellClasses = [
+    "docs-shell",
+    `docs-font-${docs.project.fontStyle || "classic"}`,
+    `docs-width-${docs.project.contentWidth || "comfortable"}`,
+    `docs-density-${docs.project.sidebarDensity || "comfortable"}`,
+    docs.project.sidebarDefaultCollapsed ? "docs-sidebar-collapsed-default" : "",
+    !docs.project.showToc ? "docs-hide-toc" : "",
+  ]
+    .filter(Boolean)
+    .join(" ");
+  const searchMarkup = docs.project.showSearch
+    ? `<div class="docs-search" role="search">
+            <input id="docs-search-input" class="docs-search-input" type="search" placeholder="Search docs..." autocomplete="off" />
+            <div id="docs-search-results" class="docs-search-results" hidden></div>
+          </div>`
+    : "";
+  const editMarkup = docs.project.showEditButton ? `<a class="ghost-button" href="/app">Edit Content</a>` : "";
+  const tocMarkup = docs.project.showToc
+    ? `<aside class="docs-toc">
+          <p class="sidebar-label">On this page</p>
+          ${toc}
+        </aside>`
+    : "";
+  const brandLogo = docs.project.logoUrl
+    ? `<img class="docs-brand-logo" src="${escapeHtml(docs.project.logoUrl)}" alt="" />`
+    : "";
+
   return `<!doctype html>
 <html lang="en">
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>${escapeHtml(pageTitle)} | ${escapeHtml(docs.project.title)}</title>
+    <title>${escapeHtml(fullPageTitle)}</title>
     ${pageDescription ? `<meta name="description" content="${escapeHtml(pageDescription)}" />` : ""}
+    ${docs.project.ogImage ? `<meta property="og:image" content="${escapeHtml(docs.project.ogImage)}" />` : ""}
+    <meta property="og:title" content="${escapeHtml(fullPageTitle)}" />
+    ${pageDescription ? `<meta property="og:description" content="${escapeHtml(pageDescription)}" />` : ""}
     ${canonicalUrl ? `<link rel="canonical" href="${escapeHtml(canonicalUrl)}" />` : ""}
+    ${docs.project.faviconUrl ? `<link rel="icon" href="${escapeHtml(docs.project.faviconUrl)}" />` : ""}
     <link rel="stylesheet" href="/public/style.css" />
   </head>
   <body>
-    <div class="docs-shell" data-theme="${escapeHtml(docs.project.defaultTheme || "light")}">
+    <div class="${escapeHtml(shellClasses)}" data-theme="${escapeHtml(docs.project.defaultTheme || "light")}" style="${escapeHtml(renderProjectStyle(docs.project))}">
       <header class="docs-navbar">
-        <div>
-          <p class="eyebrow">Local docs MVP</p>
-          <strong>${escapeHtml(docs.project.title)}</strong>
+        <div class="docs-brand">
+          ${brandLogo}
+          <div>
+            <p class="eyebrow">${escapeHtml(docs.project.navbarLabel || "Local docs MVP")}</p>
+            <strong>${escapeHtml(docs.project.brandName || docs.project.title)}</strong>
+          </div>
         </div>
         <div class="navbar-actions">
-          <div class="docs-search" role="search">
-            <input id="docs-search-input" class="docs-search-input" type="search" placeholder="Search docs..." autocomplete="off" />
-            <div id="docs-search-results" class="docs-search-results" hidden></div>
-          </div>
-          <a class="ghost-button" href="/app">Edit Content</a>
+          ${searchMarkup}
+          ${editMarkup}
           <button id="theme-toggle" class="ghost-button theme-toggle-button" type="button" aria-label="Toggle theme">
             <span class="button-icon asset-sun-moon" aria-hidden="true"></span>
           </button>
@@ -2080,33 +2233,31 @@ function renderDocsPage(docs, currentPage) {
             ${renderPagination(prevPage, nextPage)}
           </article>
         </main>
-        <aside class="docs-toc">
-          <p class="sidebar-label">On this page</p>
-          ${toc}
-        </aside>
+        ${tocMarkup}
       </div>
     </div>
     <script src="/public/theme.js"></script>
-    <script src="/public/docs-search.js"></script>
+    ${docs.project.showSearch ? `<script src="/public/docs-search.js"></script>` : ""}
   </body>
 </html>`;
 }
 
 function renderStaticIndex(docs, publishedPages) {
-  const firstPage = publishedPages[0];
+  const firstPage = publishedPages.find((page) => page.slug === docs.project.homeSlug) || publishedPages[0];
   return `<!doctype html>
 <html lang="en">
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>${escapeHtml(docs.project.title || "DaaS Static Docs")}</title>
+    ${docs.project.faviconUrl ? `<link rel="icon" href="${escapeHtml(docs.project.faviconUrl)}" />` : ""}
     <link rel="stylesheet" href="public/style.css" />
     ${firstPage ? `<meta http-equiv="refresh" content="0; url=docs/${escapeHtml(firstPage.slug)}.html" />` : ""}
   </head>
   <body class="not-found-shell">
     <div class="not-found-card">
       <p class="eyebrow">Static export</p>
-      <h1>${escapeHtml(docs.project.title || "DaaS Static Docs")}</h1>
+      <h1>${escapeHtml(docs.project.brandName || docs.project.title || "DaaS Static Docs")}</h1>
       ${
         firstPage
           ? `<p>Open the exported documentation.</p><a class="primary-button" href="docs/${escapeHtml(firstPage.slug)}.html">Open Docs</a>`
@@ -2118,15 +2269,102 @@ function renderStaticIndex(docs, publishedPages) {
 }
 
 function renderStaticDocsPage(docs, currentPage, publishedPages) {
-  const html = renderDocsPage({ ...docs, pages: publishedPages }, currentPage);
-  return html
+  const staticProject = {
+    ...docs.project,
+    showEditButton: false,
+    showSearch: docs.project.showSearch && docs.project.exportIncludeSearch,
+  };
+  const html = renderDocsPage({ ...docs, project: staticProject, pages: publishedPages }, currentPage);
+  let output = html
     .replace(/href="\/"/g, 'href="../index.html"')
     .replace(/href="\/app"/g, 'href="#"')
     .replace(/href="\/docs\/([^"#?]+)"/g, 'href="$1.html"')
     .replace(/href="\/public\//g, 'href="../public/')
     .replace(/src="\/public\//g, 'src="../public/')
-    .replace(/<script src="\.\.\/public\/docs-search\.js"><\/script>/g, "")
-    .replace(/<script src="\/public\/docs-search\.js"><\/script>/g, "");
+    .replace(/<script src="\.\.\/public\/docs-search\.js"><\/script>/g, '<script src="../public/docs-search-static.js"></script>');
+
+  if (!docs.project.exportIncludeSearch) {
+    output = output.replace(/<script src="\.\.\/public\/docs-search\.js"><\/script>/g, "");
+  }
+
+  return output;
+}
+
+function buildStaticSearchIndex(pages) {
+  return pages.map((page) => ({
+    slug: page.slug,
+    title: page.title,
+    section: page.section || "Docs",
+    description: page.description || "",
+  }));
+}
+
+function renderStaticSearchScript() {
+  return `const docsSearchInput = document.getElementById("docs-search-input");
+const docsSearchResults = document.getElementById("docs-search-results");
+let docsSearchTimer = null;
+let docsSearchIndex = [];
+
+if (docsSearchInput && docsSearchResults) {
+  fetch("../public/search-index.json")
+    .then((response) => response.ok ? response.json() : [])
+    .then((items) => {
+      docsSearchIndex = Array.isArray(items) ? items : [];
+    })
+    .catch(() => {
+      docsSearchIndex = [];
+    });
+
+  docsSearchInput.addEventListener("input", () => {
+    clearTimeout(docsSearchTimer);
+    docsSearchTimer = window.setTimeout(runDocsSearch, 120);
+  });
+
+  docsSearchInput.addEventListener("focus", () => {
+    if (docsSearchInput.value.trim()) runDocsSearch();
+  });
+
+  document.addEventListener("click", (event) => {
+    if (!event.target.closest(".docs-search")) {
+      docsSearchResults.hidden = true;
+    }
+  });
+}
+
+function runDocsSearch() {
+  const query = docsSearchInput.value.trim().toLowerCase();
+  if (!query) {
+    docsSearchResults.hidden = true;
+    docsSearchResults.innerHTML = "";
+    return;
+  }
+
+  const results = docsSearchIndex
+    .filter((item) => [item.title, item.section, item.description].join(" ").toLowerCase().includes(query))
+    .slice(0, 12);
+
+  docsSearchResults.hidden = false;
+  docsSearchResults.innerHTML = results.length
+    ? results.map(renderDocsSearchResult).join("")
+    : '<p class="docs-search-empty">Tidak ada hasil.</p>';
+}
+
+function renderDocsSearchResult(item) {
+  return '<a class="docs-search-result" href="' + escapeSearchHtml(item.slug) + '.html">' +
+    '<span>' + escapeSearchHtml(item.section || "Docs") + '</span>' +
+    '<strong>' + escapeSearchHtml(item.title) + '</strong>' +
+    (item.description ? '<small>' + escapeSearchHtml(item.description) + '</small>' : '') +
+    '</a>';
+}
+
+function escapeSearchHtml(value) {
+  return String(value || "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#039;");
+}`;
 }
 
 function renderNotFound(docs, slug) {
@@ -2175,14 +2413,14 @@ function renderPagination(prevPage, nextPage) {
   </nav>`;
 }
 
-function renderDocsSidebar(pages, activeSlug, sectionOrder = []) {
+function renderDocsSidebar(pages, activeSlug, sectionOrder = [], project = {}) {
   const sections = groupPagesBySection(pages, sectionOrder);
   return sections
     .map(
       (section) => `<section class="sidebar-group">
         <p class="sidebar-group-title">${escapeHtml(section.name)}</p>
         <div class="sidebar-group-links">
-          ${renderSidebarTree(section.pages, activeSlug)}
+          ${renderSidebarTree(section.pages, activeSlug, "", 0, project)}
         </div>
       </section>`
     )
@@ -2207,14 +2445,14 @@ function groupPagesBySection(pages, sectionOrder = []) {
   return orderedNames.map((name) => ({ name, pages: map.get(name) || [] }));
 }
 
-function renderSidebarTree(pages, activeSlug, parentSlug = "", depth = 0) {
+function renderSidebarTree(pages, activeSlug, parentSlug = "", depth = 0, project = {}) {
   return pages
     .filter((page) => (page.parentSlug || "") === parentSlug)
-    .map((page) => renderSidebarNode(page, pages, activeSlug, depth))
+    .map((page) => renderSidebarNode(page, pages, activeSlug, depth, project))
     .join("");
 }
 
-function renderSidebarNode(page, allPages, activeSlug, depth) {
+function renderSidebarNode(page, allPages, activeSlug, depth, project = {}) {
   const children = allPages.filter((item) => (item.parentSlug || "") === page.slug);
   const active = page.slug === activeSlug ? "sidebar-link active" : "sidebar-link";
 
@@ -2225,9 +2463,10 @@ function renderSidebarNode(page, allPages, activeSlug, depth) {
   }
 
   const childMarkup = children
-    .map((child) => renderSidebarNode(child, allPages, activeSlug, depth + 1))
+    .map((child) => renderSidebarNode(child, allPages, activeSlug, depth + 1, project))
     .join("");
-  const shouldOpen = hasActiveDescendant(page.slug, allPages, activeSlug) || page.slug === activeSlug;
+  const isActiveBranch = hasActiveDescendant(page.slug, allPages, activeSlug) || page.slug === activeSlug;
+  const shouldOpen = project.sidebarDefaultCollapsed ? isActiveBranch : true;
 
   return `<details class="sidebar-tree-node sidebar-collapsible depth-${depth}" ${shouldOpen ? "open" : ""}>
     <summary class="sidebar-summary">

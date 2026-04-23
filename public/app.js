@@ -1,4 +1,5 @@
 const state = {
+  project: {},
   pages: [],
   sections: [],
   selectedSlug: null,
@@ -234,7 +235,7 @@ function bindEvents() {
     parentSelect.value = "";
     descriptionInput.value = "";
     tagsInput.value = "";
-    workflowStatusInput.value = "normal";
+    workflowStatusInput.value = state.project.defaultWorkflowStatus || "normal";
     internalNotesInput.value = "";
     metaTitleInput.value = "";
     metaDescriptionInput.value = "";
@@ -279,6 +280,7 @@ function bindEvents() {
 async function loadPages() {
   const response = await fetch("/api/pages");
   const data = await response.json();
+  state.project = data.project || {};
   state.sections = Array.isArray(data.sections) ? data.sections : [];
   state.versions = Array.isArray(data.versions) && data.versions.length ? data.versions : ["latest"];
   state.pages = data.pages;
@@ -553,6 +555,18 @@ async function publishPage() {
   }
 
   await saveDraftSilently();
+  const publishBlockers = getPublishBlockers();
+  if (publishBlockers.length) {
+    await openAlertModal({
+      title: "Publish Blocked",
+      messageHtml: `<div class="health-report">
+        <p class="tool-summary">Project settings mengharuskan halaman memenuhi syarat berikut sebelum publish.</p>
+        ${publishBlockers.map((item) => `<article class="health-item is-warning"><strong>${escapeHtml(item.title)}</strong><span>${escapeHtml(item.message)}</span></article>`).join("")}
+      </div>`,
+      wide: true,
+    });
+    return;
+  }
   const draft = getEditorMarkdown();
   const published = state.currentPage ? state.currentPage.publishedContent || "" : "";
   const review = buildPublishReview(published, draft);
@@ -1088,9 +1102,8 @@ async function editProjectSettings() {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
+      ...settings,
       title,
-      description: String(settings.description || "").trim(),
-      defaultTheme: settings.defaultTheme === "dark" ? "dark" : "light",
       versions: data.versions || state.versions,
     }),
   });
@@ -1101,26 +1114,170 @@ async function editProjectSettings() {
   }
 
   setSaveStatus("Project settings saved");
+  await loadPages();
 }
 
 function renderProjectSettingsForm(project) {
   const defaultTheme = project.defaultTheme === "dark" ? "dark" : "light";
+  const pageOptions = [
+    '<option value="">First published page</option>',
+    ...state.pages.map(
+      (page) => `<option value="${escapeHtml(page.slug)}"${project.homeSlug === page.slug ? " selected" : ""}>${escapeHtml(page.title)}</option>`
+    ),
+  ].join("");
+  const field = (name, fallback = "") => escapeHtml(project[name] || fallback);
+  const checked = (name, fallback = false) => (project[name] === undefined ? fallback : Boolean(project[name])) ? " checked" : "";
+  const selected = (name, value, fallback = "") => (String(project[name] || fallback) === value ? " selected" : "");
+
   return `<form class="project-settings-form" data-modal-form>
-    <label>
-      <span>Nama docs publik</span>
-      <input name="title" type="text" value="${escapeHtml(project.title || "DaaS Local Docs")}" placeholder="Nama project" />
-    </label>
-    <label>
-      <span>Deskripsi docs publik</span>
-      <textarea name="description" rows="3" placeholder="Deskripsi singkat project">${escapeHtml(project.description || "")}</textarea>
-    </label>
-    <label>
-      <span>Default theme public docs</span>
-      <select name="defaultTheme">
-        <option value="light"${defaultTheme === "light" ? " selected" : ""}>Light</option>
-        <option value="dark"${defaultTheme === "dark" ? " selected" : ""}>Dark</option>
-      </select>
-    </label>
+    <section class="settings-section">
+      <p>Branding Public Docs</p>
+      <div class="settings-grid">
+        <label>
+          <span>Nama docs publik</span>
+          <input name="title" type="text" value="${field("title", "DaaS Local Docs")}" placeholder="Nama project" />
+        </label>
+        <label>
+          <span>Brand name</span>
+          <input name="brandName" type="text" value="${field("brandName", project.title || "DaaS Local Docs")}" placeholder="DAAS V3 Docs" />
+        </label>
+        <label>
+          <span>Navbar label</span>
+          <input name="navbarLabel" type="text" value="${field("navbarLabel", "Local docs MVP")}" placeholder="Product Docs" />
+        </label>
+        <label>
+          <span>Logo URL</span>
+          <input name="logoUrl" type="text" value="${field("logoUrl")}" placeholder="/public/assets/book-marked.svg" />
+        </label>
+        <label>
+          <span>Favicon URL</span>
+          <input name="faviconUrl" type="text" value="${field("faviconUrl")}" placeholder="/public/assets/book-marked.svg" />
+        </label>
+      </div>
+    </section>
+
+    <section class="settings-section">
+      <p>Homepage & Public Behavior</p>
+      <div class="settings-grid">
+        <label>
+          <span>Homepage</span>
+          <select name="homeSlug">${pageOptions}</select>
+        </label>
+        <label>
+          <span>Default theme public docs</span>
+          <select name="defaultTheme">
+            <option value="light"${defaultTheme === "light" ? " selected" : ""}>Light</option>
+            <option value="dark"${defaultTheme === "dark" ? " selected" : ""}>Dark</option>
+          </select>
+        </label>
+      </div>
+      <div class="settings-checks">
+        <label><input name="showSearch" type="checkbox"${checked("showSearch", true)} /> <span>Show search bar</span></label>
+        <label><input name="showToc" type="checkbox"${checked("showToc", true)} /> <span>Show table of contents</span></label>
+        <label><input name="showEditButton" type="checkbox"${checked("showEditButton", true)} /> <span>Show Edit Content button</span></label>
+        <label><input name="sidebarDefaultCollapsed" type="checkbox"${checked("sidebarDefaultCollapsed", false)} /> <span>Collapse sidebar groups by default</span></label>
+      </div>
+    </section>
+
+    <section class="settings-section">
+      <p>SEO Global Defaults</p>
+      <div class="settings-grid">
+        <label>
+          <span>Deskripsi docs publik</span>
+          <textarea name="description" rows="3" placeholder="Deskripsi singkat project">${field("description")}</textarea>
+        </label>
+        <label>
+          <span>Default meta description</span>
+          <textarea name="defaultMetaDescription" rows="3" placeholder="Fallback meta description semua halaman">${field("defaultMetaDescription", project.description || "")}</textarea>
+        </label>
+        <label>
+          <span>Title suffix</span>
+          <input name="titleSuffix" type="text" value="${field("titleSuffix", project.title || "DaaS Local Docs")}" placeholder="DaaS Docs" />
+        </label>
+        <label>
+          <span>Canonical base URL</span>
+          <input name="canonicalBaseUrl" type="url" value="${field("canonicalBaseUrl")}" placeholder="https://docs.example.com" />
+        </label>
+        <label>
+          <span>Default OG image</span>
+          <input name="ogImage" type="text" value="${field("ogImage")}" placeholder="/public/uploads/og-image.png" />
+        </label>
+      </div>
+    </section>
+
+    <section class="settings-section">
+      <p>Export Settings</p>
+      <div class="settings-grid">
+        <label>
+          <span>Export filename prefix</span>
+          <input name="exportName" type="text" value="${field("exportName", "daas-v3-static")}" placeholder="product-docs" />
+        </label>
+      </div>
+      <div class="settings-checks">
+        <label><input name="exportIncludeDrafts" type="checkbox"${checked("exportIncludeDrafts", false)} /> <span>Include draft pages in static export</span></label>
+        <label><input name="exportIncludeSearch" type="checkbox"${checked("exportIncludeSearch", true)} /> <span>Include search script</span></label>
+        <label><input name="exportIncludeUploads" type="checkbox"${checked("exportIncludeUploads", true)} /> <span>Include uploaded assets</span></label>
+      </div>
+    </section>
+
+    <section class="settings-section">
+      <p>Editorial Workflow Defaults</p>
+      <div class="settings-grid">
+        <label>
+          <span>New page status</span>
+          <select name="newPageStatus">
+            <option value="draft"${selected("newPageStatus", "draft", "draft")}>Draft</option>
+            <option value="published"${selected("newPageStatus", "published", "draft")}>Published</option>
+          </select>
+        </label>
+        <label>
+          <span>Default editorial status</span>
+          <select name="defaultWorkflowStatus">
+            <option value="normal"${selected("defaultWorkflowStatus", "normal", "normal")}>Normal</option>
+            <option value="needs-review"${selected("defaultWorkflowStatus", "needs-review", "normal")}>Needs review</option>
+            <option value="archived"${selected("defaultWorkflowStatus", "archived", "normal")}>Archived</option>
+            <option value="deprecated"${selected("defaultWorkflowStatus", "deprecated", "normal")}>Deprecated</option>
+          </select>
+        </label>
+      </div>
+      <div class="settings-checks">
+        <label><input name="requireHealthBeforePublish" type="checkbox"${checked("requireHealthBeforePublish", false)} /> <span>Require page health before publish</span></label>
+        <label><input name="requireSeoBeforePublish" type="checkbox"${checked("requireSeoBeforePublish", false)} /> <span>Require SEO metadata before publish</span></label>
+      </div>
+    </section>
+
+    <section class="settings-section">
+      <p>Theme & Appearance</p>
+      <div class="settings-grid">
+        <label>
+          <span>Accent color</span>
+          <input name="accentColor" type="text" value="${field("accentColor", "#c7562a")}" placeholder="#c7562a" />
+        </label>
+        <label>
+          <span>Font style</span>
+          <select name="fontStyle">
+            <option value="classic"${selected("fontStyle", "classic", "classic")}>Classic serif</option>
+            <option value="sans"${selected("fontStyle", "sans", "classic")}>Clean sans</option>
+            <option value="mono"${selected("fontStyle", "mono", "classic")}>Technical mono</option>
+          </select>
+        </label>
+        <label>
+          <span>Content width</span>
+          <select name="contentWidth">
+            <option value="compact"${selected("contentWidth", "compact", "comfortable")}>Compact</option>
+            <option value="comfortable"${selected("contentWidth", "comfortable", "comfortable")}>Comfortable</option>
+            <option value="wide"${selected("contentWidth", "wide", "comfortable")}>Wide</option>
+          </select>
+        </label>
+        <label>
+          <span>Sidebar density</span>
+          <select name="sidebarDensity">
+            <option value="comfortable"${selected("sidebarDensity", "comfortable", "comfortable")}>Comfortable</option>
+            <option value="compact"${selected("sidebarDensity", "compact", "comfortable")}>Compact</option>
+          </select>
+        </label>
+      </div>
+    </section>
   </form>`;
 }
 
@@ -1403,6 +1560,27 @@ function buildPageHealthChecks() {
       message: currentPageStatus === "published" ? "Halaman sudah published." : "Halaman masih draft.",
     },
   ];
+}
+
+function getPublishBlockers() {
+  const blockers = [];
+  if (state.project.requireHealthBeforePublish) {
+    blockers.push(...buildPageHealthChecks().filter((item) => !item.ok));
+  }
+
+  if (state.project.requireSeoBeforePublish) {
+    if (!metaTitleInput.value.trim()) {
+      blockers.push({ title: "Meta Title", message: "Isi meta title sebelum publish." });
+    }
+    if (metaDescriptionInput.value.trim().length < 50 || metaDescriptionInput.value.trim().length > 160) {
+      blockers.push({ title: "Meta Description", message: "Isi meta description 50-160 karakter sebelum publish." });
+    }
+    if (canonicalUrlInput.value.trim() && !/^https?:\/\//i.test(canonicalUrlInput.value.trim())) {
+      blockers.push({ title: "Canonical URL", message: "Canonical URL harus diawali http:// atau https://." });
+    }
+  }
+
+  return blockers;
 }
 
 function getDocTemplates() {
@@ -1899,12 +2077,21 @@ function renderPreviewShell(data) {
   const article = data.html || "<p>Mulai mengetik untuk melihat preview.</p>";
   const description = descriptionInput.value.trim();
   const tags = parseTagsInput(tagsInput.value);
+  const project = state.project || {};
+  const shellClasses = [
+    "preview-docs-shell",
+    `docs-font-${project.fontStyle || "classic"}`,
+    `docs-width-${project.contentWidth || "comfortable"}`,
+  ]
+    .filter(Boolean)
+    .join(" ");
+  const shellStyle = `--accent:${escapeHtml(project.accentColor || "#c7562a")};`;
 
-  return `<div class="preview-docs-shell">
+  return `<div class="${shellClasses}" style="${shellStyle}">
     <div class="preview-docs-navbar">
       <div>
-        <p class="eyebrow">Docs preview</p>
-        <strong>${title}</strong>
+        <p class="eyebrow">${escapeHtml(project.navbarLabel || "Docs preview")}</p>
+        <strong>${escapeHtml(project.brandName || title)}</strong>
       </div>
       <span class="preview-badge">${escapeHtml(slugInput.value.trim() || "draft-page")}</span>
     </div>
@@ -2310,8 +2497,12 @@ function collectModalFormData() {
   const form = appModalMessage.querySelector("[data-modal-form]");
   if (!form) return {};
   const data = {};
+  form.querySelectorAll('input[type="checkbox"][name]').forEach((input) => {
+    data[input.name] = input.checked;
+  });
   new FormData(form).forEach((value, key) => {
-    data[key] = value;
+    const field = form.elements[key];
+    data[key] = field && field.type === "checkbox" ? true : value;
   });
   return data;
 }
