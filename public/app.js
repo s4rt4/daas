@@ -1070,30 +1070,27 @@ async function editProjectSettings() {
   const data = response.ok ? await response.json() : { project: {}, versions: state.versions };
   const project = data.project || {};
 
-  const title = await openPromptModal({
+  const settings = await openFormModal({
     title: "Project Settings",
-    message: "Nama docs publik:",
-    value: project.title || "DaaS Local Docs",
-    placeholder: "Nama project",
-    confirmLabel: "Next",
-  });
-  if (!title) return;
-
-  const description = await openPromptModal({
-    title: "Project Settings",
-    message: "Deskripsi docs publik:",
-    value: project.description || "",
-    placeholder: "Deskripsi singkat project",
+    messageHtml: renderProjectSettingsForm(project),
     confirmLabel: "Save",
+    wide: true,
   });
+  if (!settings) return;
+
+  const title = String(settings.title || "").trim();
+  if (!title) {
+    await openAlertModal({ title: "Project Settings", message: "Nama docs publik wajib diisi." });
+    return;
+  }
 
   const saveResponse = await fetch("/api/project", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
       title,
-      description,
-      defaultTheme: project.defaultTheme || "light",
+      description: String(settings.description || "").trim(),
+      defaultTheme: settings.defaultTheme === "dark" ? "dark" : "light",
       versions: data.versions || state.versions,
     }),
   });
@@ -1104,6 +1101,27 @@ async function editProjectSettings() {
   }
 
   setSaveStatus("Project settings saved");
+}
+
+function renderProjectSettingsForm(project) {
+  const defaultTheme = project.defaultTheme === "dark" ? "dark" : "light";
+  return `<form class="project-settings-form" data-modal-form>
+    <label>
+      <span>Nama docs publik</span>
+      <input name="title" type="text" value="${escapeHtml(project.title || "DaaS Local Docs")}" placeholder="Nama project" />
+    </label>
+    <label>
+      <span>Deskripsi docs publik</span>
+      <textarea name="description" rows="3" placeholder="Deskripsi singkat project">${escapeHtml(project.description || "")}</textarea>
+    </label>
+    <label>
+      <span>Default theme public docs</span>
+      <select name="defaultTheme">
+        <option value="light"${defaultTheme === "light" ? " selected" : ""}>Light</option>
+        <option value="dark"${defaultTheme === "dark" ? " selected" : ""}>Dark</option>
+      </select>
+    </label>
+  </form>`;
 }
 
 async function editVersions() {
@@ -2251,6 +2269,9 @@ function openModal({
       if (mode === "prompt") {
         appModalInput.focus();
         appModalInput.select();
+      } else if (mode === "form") {
+        const firstField = appModalMessage.querySelector("input, textarea, select");
+        if (firstField) firstField.focus();
       } else {
         appModalConfirm.focus();
       }
@@ -2268,7 +2289,12 @@ function closeModal() {
 function handleModalConfirm() {
   if (!activeModalResolver) return;
   const { resolve, mode } = activeModalResolver;
-  const result = mode === "prompt" ? appModalInput.value.trim() : true;
+  const result =
+    mode === "prompt"
+      ? appModalInput.value.trim()
+      : mode === "form"
+        ? collectModalFormData()
+        : true;
   closeModal();
   resolve(result);
 }
@@ -2280,6 +2306,16 @@ function handleModalCancel() {
   resolve(mode === "prompt" ? "" : false);
 }
 
+function collectModalFormData() {
+  const form = appModalMessage.querySelector("[data-modal-form]");
+  if (!form) return {};
+  const data = {};
+  new FormData(form).forEach((value, key) => {
+    data[key] = value;
+  });
+  return data;
+}
+
 function handleModalKeydown(event) {
   if (!activeModalResolver) return;
   if (event.key === "Escape") {
@@ -2288,6 +2324,10 @@ function handleModalKeydown(event) {
     return;
   }
   if (event.key === "Enter" && activeModalResolver.mode === "prompt") {
+    event.preventDefault();
+    handleModalConfirm();
+  }
+  if (event.key === "Enter" && activeModalResolver.mode === "form" && event.target.tagName !== "TEXTAREA") {
     event.preventDefault();
     handleModalConfirm();
   }
@@ -2479,6 +2519,10 @@ function openAlertModal({ title, message, messageHtml = "", confirmLabel = "OK",
 
 function openConfirmModal({ title, message, messageHtml = "", confirmLabel = "OK", cancelLabel = "Cancel", wide = false }) {
   return openModal({ title, message, messageHtml, mode: "confirm", confirmLabel, cancelLabel, wide });
+}
+
+function openFormModal({ title, messageHtml, confirmLabel = "Save", cancelLabel = "Cancel", wide = false }) {
+  return openModal({ title, messageHtml, mode: "form", confirmLabel, cancelLabel, wide });
 }
 
 function openPromptModal({ title, message, value = "", placeholder = "", confirmLabel = "OK", cancelLabel = "Cancel" }) {

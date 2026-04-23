@@ -1792,6 +1792,50 @@ a.topbar-open-docs .open-docs-glyph,
   white-space: pre-line;
 }
 
+.project-settings-form {
+  display: grid;
+  gap: 14px;
+  white-space: normal;
+}
+
+.project-settings-form label {
+  display: grid;
+  gap: 8px;
+}
+
+.project-settings-form span {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.project-settings-form input,
+.project-settings-form textarea,
+.project-settings-form select {
+  width: 100%;
+  border: 1px solid rgba(217, 208, 191, 0.7);
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.58);
+  color: var(--text);
+  font: inherit;
+  min-height: 48px;
+  padding: 12px 14px;
+}
+
+.project-settings-form textarea {
+  resize: vertical;
+}
+
+.project-settings-form input:focus,
+.project-settings-form textarea:focus,
+.project-settings-form select:focus {
+  outline: none;
+  border-color: rgba(199, 86, 42, 0.42);
+  box-shadow: 0 0 0 4px rgba(199, 86, 42, 0.08);
+}
+
 .delete-confirmation {
   display: grid;
   gap: 12px;
