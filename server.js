@@ -1783,11 +1783,17 @@ function renderAppShell() {
         <div class="editor-topbar">
           <div class="editor-heading-block">
             <div class="editor-heading-row">
-              <h2 id="editor-heading">Editor</h2>
-              <span id="page-status" class="page-status draft">
-                <span class="page-status-dot" aria-hidden="true"></span>
-                <span id="page-status-label">Draft</span>
-              </span>
+              <div class="editor-title-line">
+                <h2 id="editor-heading">Editor</h2>
+                <span id="page-status" class="page-status draft">
+                  <span class="page-status-dot" aria-hidden="true"></span>
+                  <span id="page-status-label">Draft</span>
+                </span>
+              </div>
+              <a class="heading-open-docs topbar-open-docs" href="/" target="_blank" rel="noreferrer" aria-label="Open Docs" title="Open Docs">
+                <span class="open-docs-glyph" aria-hidden="true"></span>
+                <span>Open Docs</span>
+              </a>
             </div>
           </div>
           <div class="topbar-actions">
@@ -1851,9 +1857,6 @@ function renderAppShell() {
                 <span class="duplicate-glyph" aria-hidden="true"></span>
               </button>
             </div>
-            <a class="icon-button topbar-icon-button topbar-open-docs" href="/" target="_blank" rel="noreferrer" aria-label="Open Docs" title="Open Docs">
-              <span class="open-docs-glyph" aria-hidden="true"></span>
-            </a>
           </div>
         </div>
         <form id="editor-form" class="editor-form workspace-panel active" data-panel="write">

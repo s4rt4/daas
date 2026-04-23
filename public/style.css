@@ -377,9 +377,19 @@ code {
 
 .editor-heading-row {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
+  justify-content: space-between;
   flex-wrap: wrap;
   gap: 12px;
+}
+
+.editor-title-line {
+  display: flex;
+  align-items: center;
+  flex: 1 1 520px;
+  flex-wrap: wrap;
+  gap: 12px;
+  min-width: 0;
 }
 
 .editor-heading-row h2 {
@@ -442,7 +452,7 @@ code {
 .workspace-toggle {
   display: inline-flex;
   align-items: center;
-  padding: 3px;
+  padding: 4px;
   border-radius: 999px;
   border: 1px solid rgba(217, 208, 191, 0.82);
   background: rgba(255, 252, 246, 0.9);
@@ -450,13 +460,13 @@ code {
 }
 
 .workspace-toggle-button {
-  min-height: 34px;
-  padding: 0 13px;
+  min-height: 40px;
+  padding: 0 18px;
   border: 0;
   border-radius: 999px;
   background: transparent;
   color: var(--muted);
-  font-size: 13px;
+  font-size: 14px;
   font-weight: 700;
   cursor: pointer;
   transition: background 160ms ease, color 160ms ease, box-shadow 160ms ease;
@@ -527,6 +537,23 @@ a.topbar-open-docs:hover,
 a.topbar-open-docs .open-docs-glyph,
 .icon-button.topbar-open-docs .open-docs-glyph {
   filter: brightness(0) invert(1);
+}
+
+.heading-open-docs {
+  min-height: 44px;
+  padding: 0 18px;
+  border: 1px solid #c7562a;
+  border-radius: 999px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  flex: 0 0 auto;
+  color: #fff;
+  font-size: 14px;
+  font-weight: 800;
+  text-decoration: none;
+  box-shadow: 0 14px 28px rgba(199, 86, 42, 0.2);
 }
 
 .topbar-icon-button,
