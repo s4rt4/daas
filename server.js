@@ -53,6 +53,7 @@ const server = http.createServer(async (req, res) => {
           updatedAt: page.updatedAt,
           order: page.order || 0,
           status: page.status || "draft",
+          pinned: Boolean(page.pinned),
           publishedAt: page.publishedAt || null,
         })),
       });
@@ -106,6 +107,7 @@ const server = http.createServer(async (req, res) => {
         updatedAt: now,
         publishedAt: existingPage ? existingPage.publishedAt || null : null,
         status: existingPage ? existingPage.status || "draft" : "draft",
+        pinned: existingPage ? Boolean(existingPage.pinned) : false,
         order: existingIndex >= 0 ? existingPage.order || existingIndex : docs.pages.length,
         history: existingPage ? appendPageHistory(existingPage, now) : [],
       };
@@ -243,6 +245,7 @@ const server = http.createServer(async (req, res) => {
           draftContent: imported.content,
           publishedContent: existingPage ? existingPage.publishedContent || "" : imported.status === "published" ? imported.content : "",
           status: existingPage ? existingPage.status || "draft" : imported.status,
+          pinned: imported.pinned !== null && imported.pinned !== undefined ? Boolean(imported.pinned) : existingPage ? Boolean(existingPage.pinned) : false,
           publishedAt: existingPage ? existingPage.publishedAt || null : imported.status === "published" ? now : null,
           updatedAt: now,
           order: Number.isFinite(imported.order) ? imported.order : existingIndex >= 0 ? existingPage.order || existingIndex : docs.pages.length,
@@ -280,6 +283,22 @@ const server = http.createServer(async (req, res) => {
           summary: summarizeMarkdown(entry.content || ""),
         })),
       });
+    }
+
+    if (req.method === "POST" && pathname === "/api/page/pin") {
+      const payload = await readBody(req);
+      const docs = readDocs();
+      const slug = String(payload.slug || "");
+      const pageIndex = docs.pages.findIndex((page) => page.slug === slug);
+
+      if (pageIndex < 0) {
+        return sendJson(res, { error: "Page not found" }, 404);
+      }
+
+      docs.pages[pageIndex].pinned = Boolean(payload.pinned);
+      docs.pages[pageIndex].updatedAt = new Date().toISOString();
+      writeDocs(docs);
+      return sendJson(res, { ok: true, page: docs.pages[pageIndex] });
     }
 
     if (req.method === "POST" && pathname === "/api/page/restore") {
@@ -450,6 +469,7 @@ const server = http.createServer(async (req, res) => {
         title: `${sourcePage.title} Copy`,
         parentSlug: "",
         status: "draft",
+        pinned: false,
         publishedAt: null,
         order: docs.pages.length,
         updatedAt: new Date().toISOString(),
@@ -844,6 +864,7 @@ function migrateDocs(raw) {
           draftContent: page.draftContent !== undefined ? page.draftContent : legacyContent,
         publishedContent,
           status: page.status || (publishedContent.trim() ? "published" : "draft"),
+          pinned: Boolean(page.pinned),
           updatedAt: page.updatedAt || new Date().toISOString(),
           publishedAt: page.publishedAt || (publishedContent.trim() ? page.updatedAt || new Date().toISOString() : null),
           order: page.order !== undefined ? page.order : index,
@@ -1059,6 +1080,7 @@ function exportMarkdownArchive(docs) {
     chunks.push(`order: ${JSON.stringify(page.order || 0)}`);
     chunks.push(`previousSlugs: ${JSON.stringify(Array.isArray(page.previousSlugs) ? page.previousSlugs : [])}`);
     chunks.push(`status: ${JSON.stringify(page.status || "draft")}`);
+    chunks.push(`pinned: ${JSON.stringify(Boolean(page.pinned))}`);
     chunks.push("---");
     chunks.push(page.draftContent || "");
     chunks.push("<!-- /DAAS-PAGE -->");
@@ -1214,6 +1236,7 @@ function parseArchivePage(chunk) {
     order: Number.isFinite(Number(meta.order)) ? Number(meta.order) : null,
     previousSlugs: Array.isArray(meta.previousSlugs) ? meta.previousSlugs.map((item) => slugify(item)).filter(Boolean) : [],
     status: meta.status === "published" ? "published" : "draft",
+    pinned: meta.pinned === true || meta.pinned === "true",
     content,
   };
 }
@@ -1234,6 +1257,7 @@ function parseSingleMarkdownPage(markdown) {
     order: null,
     previousSlugs: [],
     status: "draft",
+    pinned: false,
     content,
   };
 }

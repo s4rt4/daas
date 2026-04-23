@@ -77,6 +77,7 @@ let syncingEditor = false;
 let currentPageStatus = "draft";
 let pageSearchTerm = "";
 let activeModalResolver = null;
+const EMERGENCY_DRAFT_PREFIX = "daas-v3-emergency-draft:";
 
 init();
 
@@ -155,6 +156,7 @@ function initRichEditor() {
   richEditor.on("change", () => {
     if (syncingEditor) return;
     contentInput.value = richEditor.getMarkdown();
+    saveEmergencyDraft();
     queuePreview();
     queueAutosave();
   });
@@ -226,6 +228,7 @@ function bindEvents() {
     previewContent.innerHTML = "<p>Mulai mengetik untuk melihat preview.</p>";
     setSaveStatus("Draft baru");
     setPageStatus("draft");
+    saveEmergencyDraft();
   });
 
   titleInput.addEventListener("input", () => {
@@ -297,9 +300,19 @@ function renderPageList() {
     return;
   }
 
-  const groupedPages = groupPages(sortedPages, state.sections);
+  const pinnedPages = sortedPages.filter((page) => page.pinned);
+  const regularPages = sortedPages.filter((page) => !page.pinned);
+  const groupedPages = groupPages(regularPages, state.sections);
+  const pinnedSection = pinnedPages.length
+    ? `<section class="page-group pinned-page-group">
+        <div class="page-group-header">
+          <span class="page-group-title">Pinned</span>
+        </div>
+        <div class="page-group-list">${renderEditorTree(pinnedPages.map((page) => ({ ...page, parentSlug: "" })))}</div>
+      </section>`
+    : "";
 
-  pageList.innerHTML = groupedPages
+  pageList.innerHTML = `${pinnedSection}${groupedPages
     .map((group) => {
       const isCollapsed = state.collapsedSections.has(group.name);
       const groupContent = renderEditorTree(group.pages);
@@ -319,7 +332,7 @@ function renderPageList() {
         <div class="page-group-list ${isCollapsed ? "is-collapsed" : ""}">${isCollapsed ? "" : groupContent || '<p class="section-empty-state">Belum ada halaman di section ini.</p>'}</div>
       </section>`;
     })
-    .join("");
+    .join("")}`;
 
   pageList.querySelectorAll("[data-action]").forEach((button) => {
     if (button.dataset.section) {
@@ -357,6 +370,12 @@ function handlePageAction(slug, action) {
 
   if (action === "delete-page") {
     deletePageBySlug(slug);
+    return;
+  }
+
+  if (action === "pin-page" || action === "unpin-page") {
+    closeSidebarMenu();
+    togglePinnedPage(slug, action === "pin-page");
     return;
   }
 
@@ -418,6 +437,7 @@ async function selectPage(slug) {
   updateHeading();
   setPageStatus(page.status || "draft");
   setSaveStatus("Saved");
+  await maybeRecoverEmergencyDraft(page);
   await refreshPreview();
 }
 
@@ -1204,6 +1224,11 @@ function formatBytes(value) {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
+function formatDateTime(value) {
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? "waktu tidak diketahui" : date.toLocaleString();
+}
+
 async function uploadImageFile(file, fallbackName) {
   const formData = new FormData();
   formData.append("file", file, fallbackName || file.name || "image.png");
@@ -1243,7 +1268,26 @@ async function movePage(slug, direction) {
   await loadPages();
 }
 
+async function togglePinnedPage(slug, pinned) {
+  const response = await fetch("/api/page/pin", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ slug, pinned }),
+  });
+
+  if (!response.ok) {
+    await openAlertModal({
+      title: "Pin Failed",
+      message: "Gagal mengubah status pinned halaman.",
+    });
+    return;
+  }
+
+  await loadPages();
+}
+
 function queueAutosave() {
+  saveEmergencyDraft();
   setSaveStatus("Saving...");
   clearTimeout(autosaveTimer);
   autosaveTimer = window.setTimeout(async () => {
@@ -1324,6 +1368,112 @@ function setEditorContent(value) {
   window.setTimeout(() => {
     syncingEditor = false;
   }, 0);
+}
+
+function getEmergencyDraftKey(slug = "") {
+  const stableSlug = String(slug || state.originalSlug || state.selectedSlug || slugInput.value || "__new").trim() || "__new";
+  return `${EMERGENCY_DRAFT_PREFIX}${stableSlug}`;
+}
+
+function getEmergencyDraftCandidateKeys(page = state.currentPage || {}) {
+  return Array.from(
+    new Set([
+      getEmergencyDraftKey(page.slug),
+      getEmergencyDraftKey(state.originalSlug),
+      getEmergencyDraftKey(state.selectedSlug),
+      getEmergencyDraftKey(slugInput.value),
+      `${EMERGENCY_DRAFT_PREFIX}__new`,
+    ])
+  );
+}
+
+function saveEmergencyDraft() {
+  try {
+    const payload = currentPayload();
+    const hasMeaningfulDraft = payload.title.trim() || payload.slug.trim() || payload.content.trim();
+    if (!hasMeaningfulDraft) return;
+
+    localStorage.setItem(
+      getEmergencyDraftKey(payload.originalSlug || payload.slug),
+      JSON.stringify({
+        ...payload,
+        savedAt: new Date().toISOString(),
+      })
+    );
+  } catch {
+    // localStorage can fail in private mode or when quota is full.
+  }
+}
+
+function clearEmergencyDrafts(page = state.currentPage || {}) {
+  try {
+    for (const key of getEmergencyDraftCandidateKeys(page)) {
+      localStorage.removeItem(key);
+    }
+  } catch {
+    // Safe to ignore; this backup layer should never block primary saves.
+  }
+}
+
+function readEmergencyDraft(page = state.currentPage || {}) {
+  try {
+    return getEmergencyDraftCandidateKeys(page)
+      .map((key) => {
+        const raw = localStorage.getItem(key);
+        if (!raw) return null;
+        const draft = JSON.parse(raw);
+        return draft && draft.savedAt ? { ...draft, storageKey: key } : null;
+      })
+      .filter(Boolean)
+      .sort((a, b) => new Date(b.savedAt).getTime() - new Date(a.savedAt).getTime())[0] || null;
+  } catch {
+    return null;
+  }
+}
+
+async function maybeRecoverEmergencyDraft(page) {
+  const draft = readEmergencyDraft(page);
+  if (!draft) return;
+
+  const draftTime = new Date(draft.savedAt).getTime();
+  const serverTime = new Date(page.updatedAt || 0).getTime();
+  const hasNewerDraft = draftTime > serverTime + 1000;
+  const isDifferent =
+    draft.title !== page.title ||
+    draft.slug !== page.slug ||
+    draft.content !== (page.content || "") ||
+    draft.description !== (page.description || "");
+
+  if (!hasNewerDraft || !isDifferent) {
+    clearEmergencyDrafts(page);
+    return;
+  }
+
+  const confirmed = await openConfirmModal({
+    title: "Recover Local Draft",
+    message: `Ada draft lokal yang lebih baru dari server (${formatDateTime(draft.savedAt)}). Pulihkan draft ini?`,
+    confirmLabel: "Recover",
+  });
+
+  if (!confirmed) return;
+  applyEmergencyDraft(draft);
+}
+
+function applyEmergencyDraft(draft) {
+  titleInput.value = draft.title || "";
+  slugInput.value = draft.slug || "";
+  sectionInput.value = draft.section || sectionInput.value || state.sections[0] || "General";
+  rebuildParentOptions(state.originalSlug || state.selectedSlug);
+  parentSelect.value = draft.parentSlug || "";
+  descriptionInput.value = draft.description || "";
+  metaTitleInput.value = draft.metaTitle || "";
+  metaDescriptionInput.value = draft.metaDescription || "";
+  canonicalUrlInput.value = draft.canonicalUrl || "";
+  renderVersionOptions(draft.version || "latest");
+  setEditorContent(draft.content || "");
+  updateHeading();
+  setSaveStatus("Recovered local draft");
+  queuePreview();
 }
 
 function toggleSidebar() {
@@ -1422,6 +1572,7 @@ function renderPageMenu(page, canOutdent) {
   if (!isOpen) return "";
 
   return `<div class="sidebar-item-menu" role="menu">
+    <button class="sidebar-item-menu-action" type="button" data-action="${page.pinned ? "unpin-page" : "pin-page"}" data-slug="${page.slug}" role="menuitem">${page.pinned ? "Unpin Page" : "Pin Page"}</button>
     <button class="sidebar-item-menu-action" type="button" data-action="up" data-slug="${page.slug}" role="menuitem">Move Up</button>
     <button class="sidebar-item-menu-action" type="button" data-action="down" data-slug="${page.slug}" role="menuitem">Move Down</button>
     <button class="sidebar-item-menu-action" type="button" data-action="indent" data-slug="${page.slug}" role="menuitem">Make Sub-page</button>
@@ -1469,6 +1620,7 @@ function updateHeading() {
 
 async function saveDraftSilently() {
   if (!canAutosave()) return;
+  const previousPage = { slug: state.originalSlug || state.selectedSlug || slugInput.value || "__new" };
   const response = await fetch("/api/page", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -1484,6 +1636,8 @@ async function saveDraftSilently() {
   state.originalSlug = data.page.slug;
   state.currentPage = { ...(state.currentPage || {}), ...data.page, content: data.page.draftContent || "" };
   setPageStatus(data.page.status || currentPageStatus);
+  clearEmergencyDrafts(previousPage);
+  clearEmergencyDrafts(data.page);
 }
 
 function insertIntoEditor(markdown) {
@@ -1833,10 +1987,53 @@ function handleModalMessageClick(event) {
 }
 
 function handleGlobalShortcuts(event) {
-  const isCommandK = (event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "k";
-  if (!isCommandK) return;
-  event.preventDefault();
-  openCommandPalette();
+  const key = event.key.toLowerCase();
+  const isMod = event.ctrlKey || event.metaKey;
+
+  if (isMod && key === "k") {
+    event.preventDefault();
+    openCommandPalette();
+    return;
+  }
+
+  if (isMod && key === "s") {
+    event.preventDefault();
+    if (!canAutosave()) {
+      setSaveStatus("Isi title dan slug untuk save");
+      return;
+    }
+
+    saveDraftSilently()
+      .then(() => {
+        setSaveStatus("Saved");
+        return loadPages();
+      })
+      .catch(() => setSaveStatus("Save gagal"));
+    return;
+  }
+
+  if (isMod && event.shiftKey && key === "p") {
+    event.preventDefault();
+    publishPage();
+    return;
+  }
+
+  if (isMod && event.shiftKey && key === "d") {
+    event.preventDefault();
+    showDraftDiff();
+    return;
+  }
+
+  if (isMod && event.shiftKey && key === "h") {
+    event.preventDefault();
+    recoverDraftHistory();
+    return;
+  }
+
+  if (event.altKey && key === "n") {
+    event.preventDefault();
+    newPageButton.click();
+  }
 }
 
 function executeCommand(command, slug = "") {

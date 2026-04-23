@@ -1078,6 +1078,11 @@ a.topbar-open-docs .open-docs-glyph,
   gap: 8px;
 }
 
+.pinned-page-group {
+  padding-bottom: 8px;
+  border-bottom: 1px solid rgba(217, 208, 191, 0.55);
+}
+
 .page-group-header {
   display: flex;
   align-items: center;
