@@ -501,9 +501,16 @@ async function deletePage() {
 
 async function deletePageBySlug(slug) {
   if (!slug) return;
+  const page = state.pages.find((item) => item.slug === slug);
+  const pageTitle = page ? page.title : slug;
   const confirmed = await openConfirmModal({
     title: "Delete Page",
-    message: "Hapus halaman ini?",
+    messageHtml: renderDeleteTargetMessage({
+      intro: "Hapus halaman ini?",
+      label: "Page",
+      value: pageTitle,
+      note: "Aksi ini akan menghapus draft, konten published, metadata, dan child relation halaman tersebut.",
+    }),
     confirmLabel: "Delete",
   });
   if (!confirmed) return;
@@ -756,6 +763,17 @@ function formatWorkflowStatus(status) {
     deprecated: "Deprecated",
   };
   return labels[status] || "Normal";
+}
+
+function renderDeleteTargetMessage({ intro, label, value, note }) {
+  return `<div class="delete-confirmation">
+    <p>${escapeHtml(intro)}</p>
+    <div class="delete-target-card">
+      <span>${escapeHtml(label)}</span>
+      <strong>${escapeHtml(value || "-")}</strong>
+    </div>
+    ${note ? `<p class="delete-confirmation-note">${escapeHtml(note)}</p>` : ""}
+  </div>`;
 }
 
 function buildPublishReview(before, after) {
@@ -2164,7 +2182,12 @@ async function moveSection(name, direction) {
 async function deleteSection(name) {
   const confirmed = await openConfirmModal({
     title: "Delete Section",
-    message: `Hapus section "${name}"? Section hanya bisa dihapus kalau sudah kosong.`,
+    messageHtml: renderDeleteTargetMessage({
+      intro: "Hapus section ini?",
+      label: "Section",
+      value: name,
+      note: "Section hanya bisa dihapus kalau sudah kosong.",
+    }),
     confirmLabel: "Delete",
   });
   if (!confirmed) {
