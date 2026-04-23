@@ -2616,6 +2616,14 @@ body.sidebar-collapsed .page-card:focus-within::after {
   border-bottom: 1px solid var(--border);
 }
 
+.docs-shell {
+  min-height: 100vh;
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
 .docs-brand {
   display: inline-flex;
   align-items: center;
@@ -2713,10 +2721,13 @@ body.sidebar-collapsed .page-card:focus-within::after {
 }
 
 .docs-layout {
-  max-width: 1440px;
+  width: min(1440px, 100%);
   margin: 0 auto;
   display: grid;
   grid-template-columns: 260px minmax(0, 1fr) 220px;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: hidden;
 }
 
 .docs-hide-toc .docs-layout {
@@ -2769,19 +2780,17 @@ body.sidebar-collapsed .page-card:focus-within::after {
 
 .docs-sidebar,
 .docs-toc {
-  position: sticky;
-  top: 88px;
-  height: calc(100vh - 88px);
+  height: 100%;
   overflow: auto;
-  scrollbar-width: thin;
-  scrollbar-color: rgba(214, 198, 175, 0.32) transparent;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
 }
 
 .docs-sidebar::-webkit-scrollbar,
 .docs-main::-webkit-scrollbar,
 .docs-toc::-webkit-scrollbar {
-  width: 8px;
-  height: 8px;
+  width: 0;
+  height: 0;
 }
 
 .docs-sidebar::-webkit-scrollbar-track,
@@ -2893,6 +2902,11 @@ body.sidebar-collapsed .page-card:focus-within::after {
 .docs-main {
   padding-top: 48px;
   padding-bottom: 56px;
+  height: 100%;
+  min-height: 0;
+  overflow: auto;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(214, 198, 175, 0.24) transparent;
 }
 
 .docs-prose {
@@ -3243,6 +3257,23 @@ body.sidebar-collapsed .page-card:focus-within::after {
   .docs-toc {
     position: static;
     height: auto;
+    overflow: visible;
+  }
+
+  .docs-shell {
+    min-height: auto;
+    height: auto;
+    overflow: visible;
+  }
+
+  .docs-layout {
+    width: 100%;
+    overflow: visible;
+  }
+
+  .docs-main {
+    height: auto;
+    overflow: visible;
   }
 
   .settings-grid,
