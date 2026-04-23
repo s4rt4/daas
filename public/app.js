@@ -19,6 +19,8 @@ const sectionInput = document.getElementById("section-input");
 const parentSelect = document.getElementById("parent-select");
 const descriptionInput = document.getElementById("description-input");
 const tagsInput = document.getElementById("tags-input");
+const workflowStatusInput = document.getElementById("workflow-status-input");
+const internalNotesInput = document.getElementById("internal-notes-input");
 const metaTitleInput = document.getElementById("meta-title-input");
 const metaDescriptionInput = document.getElementById("meta-description-input");
 const canonicalUrlInput = document.getElementById("canonical-url-input");
@@ -45,6 +47,7 @@ const copyLinkButton = document.getElementById("copy-link-button");
 const duplicateButton = document.getElementById("duplicate-button");
 const exportMarkdownButton = document.getElementById("export-markdown-button");
 const exportZipButton = document.getElementById("export-zip-button");
+const exportHtmlButton = document.getElementById("export-html-button");
 const importMarkdownButton = document.getElementById("import-markdown-button");
 const importMarkdownInput = document.getElementById("import-markdown-input");
 const recoverDraftButton = document.getElementById("recover-draft-button");
@@ -58,6 +61,7 @@ const pageHealthButton = document.getElementById("page-health-button");
 const mediaLibraryButton = document.getElementById("media-library-button");
 const templatesButton = document.getElementById("templates-button");
 const redirectManagerButton = document.getElementById("redirect-manager-button");
+const activityLogButton = document.getElementById("activity-log-button");
 const newSectionButton = document.getElementById("new-section-button");
 const pageSearchInput = document.getElementById("page-search-input");
 const pageSortSelect = document.getElementById("page-sort-select");
@@ -178,6 +182,7 @@ function bindEvents() {
   duplicateButton.addEventListener("click", duplicatePage);
   exportMarkdownButton.addEventListener("click", exportMarkdownArchive);
   exportZipButton.addEventListener("click", exportZipBackup);
+  exportHtmlButton.addEventListener("click", exportHtmlStatic);
   importMarkdownButton.addEventListener("click", () => importMarkdownInput.click());
   importMarkdownInput.addEventListener("change", importMarkdownArchive);
   recoverDraftButton.addEventListener("click", recoverDraftHistory);
@@ -191,6 +196,7 @@ function bindEvents() {
   mediaLibraryButton.addEventListener("click", openMediaLibrary);
   templatesButton.addEventListener("click", openTemplates);
   redirectManagerButton.addEventListener("click", openRedirectManager);
+  activityLogButton.addEventListener("click", openActivityLog);
   newSectionButton.addEventListener("click", createSection);
   pageSearchInput.addEventListener("input", () => {
     pageSearchTerm = pageSearchInput.value.trim().toLowerCase();
@@ -228,6 +234,8 @@ function bindEvents() {
     parentSelect.value = "";
     descriptionInput.value = "";
     tagsInput.value = "";
+    workflowStatusInput.value = "normal";
+    internalNotesInput.value = "";
     metaTitleInput.value = "";
     metaDescriptionInput.value = "";
     canonicalUrlInput.value = "";
@@ -262,7 +270,7 @@ function bindEvents() {
     queuePreview();
     queueAutosave();
   });
-  [tagsInput, metaTitleInput, metaDescriptionInput, canonicalUrlInput, versionInput, scheduledAtInput].forEach((input) => {
+  [tagsInput, workflowStatusInput, internalNotesInput, metaTitleInput, metaDescriptionInput, canonicalUrlInput, versionInput, scheduledAtInput].forEach((input) => {
     input.addEventListener("input", queueAutosave);
     input.addEventListener("change", queueAutosave);
   });
@@ -304,6 +312,7 @@ function renderPageList() {
         page.section,
         page.description,
         Array.isArray(page.tags) ? page.tags.join(" ") : "",
+        page.workflowStatus,
         page.searchText,
       ]
         .join(" ")
@@ -459,6 +468,8 @@ async function selectPage(slug) {
   parentSelect.value = page.parentSlug || "";
   descriptionInput.value = page.description || "";
   tagsInput.value = Array.isArray(page.tags) ? page.tags.join(", ") : "";
+  workflowStatusInput.value = page.workflowStatus || "normal";
+  internalNotesInput.value = page.internalNotes || "";
   metaTitleInput.value = page.metaTitle || "";
   metaDescriptionInput.value = page.metaDescription || "";
   canonicalUrlInput.value = page.canonicalUrl || "";
@@ -475,7 +486,7 @@ async function selectPage(slug) {
 
 async function savePage(event) {
   event.preventDefault();
-  await saveDraftSilently();
+  await saveDraftSilently("save-draft");
   await loadPages();
   if (state.selectedSlug) {
     await selectPage(state.selectedSlug);
@@ -683,6 +694,68 @@ function exportMarkdownArchive() {
 
 function exportZipBackup() {
   window.location.href = "/api/export/zip";
+}
+
+function exportHtmlStatic() {
+  window.location.href = "/api/export/html";
+}
+
+async function openActivityLog() {
+  const response = await fetch("/api/audit");
+  if (!response.ok) {
+    await openAlertModal({ title: "Activity Log", message: "Gagal memuat activity log." });
+    return;
+  }
+
+  const data = await response.json();
+  const entries = Array.isArray(data.entries) ? data.entries : [];
+  await openAlertModal({
+    title: `Activity Log (${entries.length})`,
+    messageHtml: renderActivityLog(entries),
+    confirmLabel: "Close",
+    wide: true,
+  });
+}
+
+function renderActivityLog(entries) {
+  if (!entries.length) {
+    return `<div class="audit-report"><p class="tool-empty">Belum ada aktivitas tercatat.</p></div>`;
+  }
+
+  return `<div class="audit-report">
+    <p class="tool-summary">Aktivitas penting dari editor lokal. Autosave biasa tidak dicatat agar log tidak berisik.</p>
+    ${entries
+      .slice(0, 80)
+      .map((entry) => {
+        const details = entry.details || {};
+        const detailText = Object.entries(details)
+          .filter(([, value]) => value !== "" && value !== null && value !== undefined)
+          .map(([key, value]) => `${key}: ${value}`)
+          .join(" - ");
+        return `<article class="audit-card">
+          <strong>${escapeHtml(formatAuditAction(entry.action))}</strong>
+          <span>${escapeHtml(formatDateTime(entry.createdAt))}</span>
+          ${detailText ? `<p>${escapeHtml(detailText)}</p>` : ""}
+        </article>`;
+      })
+      .join("")}
+  </div>`;
+}
+
+function formatAuditAction(action) {
+  return String(action || "activity")
+    .split("-")
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(" ");
+}
+
+function formatWorkflowStatus(status) {
+  const labels = {
+    "needs-review": "Review",
+    archived: "Archived",
+    deprecated: "Deprecated",
+  };
+  return labels[status] || "Normal";
 }
 
 function buildPublishReview(before, after) {
@@ -1061,6 +1134,8 @@ async function openCommandPalette() {
     messageHtml: `<div class="command-palette">
       <button class="command-item" type="button" data-command="new-page"><strong>New Page</strong><span>Buat halaman dokumentasi baru</span></button>
       <button class="command-item" type="button" data-command="zip-backup"><strong>Export ZIP Backup</strong><span>Download docs.json, Markdown export, dan uploads</span></button>
+      <button class="command-item" type="button" data-command="html-export"><strong>Export Static HTML</strong><span>Download public docs sebagai static site zip</span></button>
+      <button class="command-item" type="button" data-command="activity-log"><strong>Activity Log</strong><span>Lihat aktivitas penting editor lokal</span></button>
       <button class="command-item" type="button" data-command="page-health"><strong>Page Health</strong><span>Cek kualitas halaman aktif</span></button>
       <button class="command-item" type="button" data-command="draft-diff"><strong>Compare Draft</strong><span>Lihat perubahan draft vs published</span></button>
       <button class="command-item" type="button" data-command="media-library"><strong>Media Library</strong><span>Lihat uploaded assets dan penggunaannya</span></button>
@@ -1468,6 +1543,8 @@ function currentPayload() {
     parentSlug: parentSelect.value || "",
     description: descriptionInput.value,
     tags: parseTagsInput(tagsInput.value),
+    workflowStatus: workflowStatusInput.value || "normal",
+    internalNotes: internalNotesInput.value,
     metaTitle: metaTitleInput.value,
     metaDescription: metaDescriptionInput.value,
     canonicalUrl: canonicalUrlInput.value,
@@ -1628,6 +1705,8 @@ function applyEmergencyDraft(draft) {
   parentSelect.value = draft.parentSlug || "";
   descriptionInput.value = draft.description || "";
   tagsInput.value = Array.isArray(draft.tags) ? draft.tags.join(", ") : draft.tags || "";
+  workflowStatusInput.value = draft.workflowStatus || "normal";
+  internalNotesInput.value = draft.internalNotes || "";
   metaTitleInput.value = draft.metaTitle || "";
   metaDescriptionInput.value = draft.metaDescription || "";
   canonicalUrlInput.value = draft.canonicalUrl || "";
@@ -1783,13 +1862,13 @@ function updateHeading() {
   heading.textContent = `${isPreview ? "Preview" : "Editing"}: ${title}`;
 }
 
-async function saveDraftSilently() {
+async function saveDraftSilently(auditAction = "") {
   if (!canAutosave()) return;
   const previousPage = { slug: state.originalSlug || state.selectedSlug || slugInput.value || "__new" };
   const response = await fetch("/api/page", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(currentPayload()),
+    body: JSON.stringify({ ...currentPayload(), auditAction }),
   });
 
   if (!response.ok) {
@@ -1863,6 +1942,7 @@ function renderEditorTree(pages, parentSlug = "", depth = 0) {
                   <strong class="${titleClass}" title="${escapeHtml(page.title)}">
                     <span class="page-status-marker ${page.status || "draft"}" title="${page.status === "published" ? "Published" : "Draft"}" aria-label="${page.status === "published" ? "Published" : "Draft"}"></span>
                     <span class="page-title-text">${escapeHtml(page.title)}</span>
+                    ${page.workflowStatus && page.workflowStatus !== "normal" ? `<span class="page-workflow-pill">${escapeHtml(formatWorkflowStatus(page.workflowStatus))}</span>` : ""}
                   </strong>
                 </button>
                 <div class="page-card-meta">
@@ -2178,7 +2258,7 @@ function handleGlobalShortcuts(event) {
       return;
     }
 
-    saveDraftSilently()
+    saveDraftSilently("save-draft")
       .then(() => {
         setSaveStatus("Saved");
         return loadPages();
@@ -2221,6 +2301,8 @@ function executeCommand(command, slug = "") {
     return;
   }
   if (command === "zip-backup") return exportZipBackup();
+  if (command === "html-export") return exportHtmlStatic();
+  if (command === "activity-log") return openActivityLog();
   if (command === "page-health") return showPageHealth();
   if (command === "draft-diff") return showDraftDiff();
   if (command === "media-library") return openMediaLibrary();

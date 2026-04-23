@@ -8,6 +8,7 @@ const DATA_DIR = path.join(__dirname, "data");
 const PUBLIC_DIR = path.join(__dirname, "public");
 const UPLOADS_DIR = path.join(PUBLIC_DIR, "uploads");
 const DATA_FILE = path.join(DATA_DIR, "docs.json");
+const AUDIT_FILE = path.join(DATA_DIR, "audit.json");
 const CRC32_TABLE = Array.from({ length: 256 }, (_, index) => {
   let value = index;
   for (let bit = 0; bit < 8; bit += 1) {
@@ -51,6 +52,7 @@ const server = http.createServer(async (req, res) => {
           parentSlug: page.parentSlug || "",
           description: page.description || "",
           tags: Array.isArray(page.tags) ? page.tags : [],
+          workflowStatus: normalizeWorkflowStatus(page.workflowStatus),
           scheduledAt: page.scheduledAt || "",
           searchText: summarizeSearchText(page.draftContent || page.publishedContent || ""),
           updatedAt: page.updatedAt,
@@ -101,6 +103,8 @@ const server = http.createServer(async (req, res) => {
         parentSlug: normalized.parentSlug,
         description: normalized.description,
         tags: normalized.tags,
+        internalNotes: normalized.internalNotes,
+        workflowStatus: normalized.workflowStatus,
         metaTitle: normalized.metaTitle,
         metaDescription: normalized.metaDescription,
         canonicalUrl: normalized.canonicalUrl,
@@ -125,6 +129,13 @@ const server = http.createServer(async (req, res) => {
 
       docs.pages = normalizePageOrders(docs.pages);
       writeDocs(docs);
+      if (payload.auditAction || !existingPage) {
+        appendAudit(existingPage ? payload.auditAction || "save-draft" : "page-created", {
+          slug: page.slug,
+          title: page.title,
+          previousSlug: existingPage && existingPage.slug !== page.slug ? existingPage.slug : "",
+        });
+      }
       return sendJson(res, { ok: true, page });
     }
 
@@ -167,6 +178,10 @@ const server = http.createServer(async (req, res) => {
       return sendJson(res, { assets: listMediaAssets(docs) });
     }
 
+    if (req.method === "GET" && pathname === "/api/audit") {
+      return sendJson(res, { entries: readAuditLog().slice(0, 120) });
+    }
+
     if (req.method === "GET" && pathname === "/api/redirects") {
       const docs = readDocs();
       return sendJson(res, { redirects: listRedirects(docs) });
@@ -200,6 +215,10 @@ const server = http.createServer(async (req, res) => {
 
       page.updatedAt = new Date().toISOString();
       writeDocs(docs);
+      appendAudit(action === "delete" ? "redirect-deleted" : "redirect-added", {
+        slug: page.slug,
+        previousSlug,
+      });
       return sendJson(res, { ok: true, redirects: listRedirects(docs), page });
     }
 
@@ -213,6 +232,13 @@ const server = http.createServer(async (req, res) => {
       const docs = readDocs();
       const archive = createBackupArchive(docs);
       return sendBinaryDownload(res, archive, `daas-v3-backup-${new Date().toISOString().slice(0, 10)}.zip`, "application/zip");
+    }
+
+    if (req.method === "GET" && pathname === "/api/export/html") {
+      const docs = readDocs();
+      const archive = createStaticSiteArchive(docs);
+      appendAudit("export-html", { pages: getPublishedPages(docs).length });
+      return sendBinaryDownload(res, archive, `daas-v3-static-${new Date().toISOString().slice(0, 10)}.zip`, "application/zip");
     }
 
     if (req.method === "POST" && pathname === "/api/import/markdown") {
@@ -243,6 +269,8 @@ const server = http.createServer(async (req, res) => {
           parentSlug: imported.parentSlug,
           description: imported.description,
           tags: imported.tags,
+          internalNotes: imported.internalNotes,
+          workflowStatus: imported.workflowStatus,
           metaTitle: imported.metaTitle,
           metaDescription: imported.metaDescription,
           canonicalUrl: imported.canonicalUrl,
@@ -269,6 +297,7 @@ const server = http.createServer(async (req, res) => {
       docs.sections = Array.from(new Set(docs.sections.map((section) => normalizeSectionName(section)).filter(Boolean)));
       docs.pages = normalizePageOrders(docs.pages);
       writeDocs(docs);
+      appendAudit("import-markdown", { pages: importedPages.length });
       return sendJson(res, { ok: true, imported: importedPages.length, pages: docs.pages });
     }
 
@@ -305,6 +334,10 @@ const server = http.createServer(async (req, res) => {
       docs.pages[pageIndex].pinned = Boolean(payload.pinned);
       docs.pages[pageIndex].updatedAt = new Date().toISOString();
       writeDocs(docs);
+      appendAudit(payload.pinned ? "page-pinned" : "page-unpinned", {
+        slug: docs.pages[pageIndex].slug,
+        title: docs.pages[pageIndex].title,
+      });
       return sendJson(res, { ok: true, page: docs.pages[pageIndex] });
     }
 
@@ -333,6 +366,7 @@ const server = http.createServer(async (req, res) => {
         history: appendPageHistory(page, now, "restore"),
       };
       writeDocs(docs);
+      appendAudit("draft-restored", { slug: page.slug, title: page.title, historyId });
       return sendJson(res, { ok: true, page: docs.pages[pageIndex] });
     }
 
@@ -352,6 +386,7 @@ const server = http.createServer(async (req, res) => {
 
       docs.sections = [...(docs.sections || []), sectionName];
       writeDocs(docs);
+      appendAudit("section-created", { section: sectionName });
       return sendJson(res, { ok: true, sections: docs.sections });
     }
 
@@ -376,6 +411,7 @@ const server = http.createServer(async (req, res) => {
       sections.splice(targetIndex, 0, moved);
       docs.sections = sections;
       writeDocs(docs);
+      appendAudit("section-reordered", { section: name, direction });
       return sendJson(res, { ok: true, sections });
     }
 
@@ -400,6 +436,7 @@ const server = http.createServer(async (req, res) => {
 
       docs.sections = sections.filter((section) => section !== name);
       writeDocs(docs);
+      appendAudit("section-deleted", { section: name });
       return sendJson(res, { ok: true, sections: docs.sections });
     }
 
@@ -424,6 +461,7 @@ const server = http.createServer(async (req, res) => {
       };
 
       writeDocs(docs);
+      appendAudit("page-published", { slug, title: docs.pages[pageIndex].title });
       return sendJson(res, { ok: true, page: docs.pages[pageIndex] });
     }
 
@@ -443,12 +481,14 @@ const server = http.createServer(async (req, res) => {
       };
 
       writeDocs(docs);
+      appendAudit("page-unpublished", { slug, title: docs.pages[pageIndex].title });
       return sendJson(res, { ok: true, page: docs.pages[pageIndex] });
     }
 
     if (req.method === "POST" && pathname === "/api/page/delete") {
       const payload = await readBody(req);
       const docs = readDocs();
+      const deletedPage = docs.pages.find((item) => item.slug === payload.slug);
       const nextPages = docs.pages.filter((item) => item.slug !== payload.slug);
 
       if (nextPages.length === docs.pages.length) {
@@ -457,6 +497,7 @@ const server = http.createServer(async (req, res) => {
 
       docs.pages = nextPages.map((page, index) => ({ ...page, order: index }));
       writeDocs(docs);
+      appendAudit("page-deleted", { slug: deletedPage.slug, title: deletedPage.title });
       return sendJson(res, { ok: true });
     }
 
@@ -485,6 +526,7 @@ const server = http.createServer(async (req, res) => {
 
       docs.pages.push(duplicate);
       writeDocs(docs);
+      appendAudit("page-duplicated", { slug: sourcePage.slug, duplicateSlug: duplicate.slug, title: duplicate.title });
       return sendJson(res, { ok: true, page: duplicate });
     }
 
@@ -603,6 +645,7 @@ function ensureFileSystem() {
   if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
   if (!fs.existsSync(PUBLIC_DIR)) fs.mkdirSync(PUBLIC_DIR, { recursive: true });
   if (!fs.existsSync(UPLOADS_DIR)) fs.mkdirSync(UPLOADS_DIR, { recursive: true });
+  if (!fs.existsSync(AUDIT_FILE)) fs.writeFileSync(AUDIT_FILE, "[]");
 
   if (!fs.existsSync(DATA_FILE)) {
   const starter = {
@@ -722,6 +765,30 @@ function writeDocs(data) {
   fs.writeFileSync(DATA_FILE, JSON.stringify(data, null, 2));
 }
 
+function readAuditLog() {
+  try {
+    const raw = JSON.parse(fs.readFileSync(AUDIT_FILE, "utf8"));
+    return Array.isArray(raw) ? raw : [];
+  } catch {
+    return [];
+  }
+}
+
+function writeAuditLog(entries) {
+  fs.writeFileSync(AUDIT_FILE, JSON.stringify(entries.slice(0, 500), null, 2));
+}
+
+function appendAudit(action, details = {}) {
+  const entry = {
+    id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+    action,
+    details,
+    createdAt: new Date().toISOString(),
+  };
+  writeAuditLog([entry, ...readAuditLog()]);
+  return entry;
+}
+
 function normalizePageInput(payload) {
   const slug = String(payload.slug || "")
     .trim()
@@ -734,6 +801,8 @@ function normalizePageInput(payload) {
   const parentSlug = String(payload.parentSlug || "").trim();
   const description = String(payload.description || "").trim();
   const tags = normalizeTags(payload.tags);
+  const internalNotes = String(payload.internalNotes || "").trim();
+  const workflowStatus = normalizeWorkflowStatus(payload.workflowStatus);
   const metaTitle = String(payload.metaTitle || "").trim();
   const metaDescription = String(payload.metaDescription || "").trim();
   const canonicalUrl = String(payload.canonicalUrl || "").trim();
@@ -749,7 +818,7 @@ function normalizePageInput(payload) {
     throw new Error("Page cannot be its own parent.");
   }
 
-  return { slug, title, section, parentSlug, description, tags, metaTitle, metaDescription, canonicalUrl, version, scheduledAt, content };
+  return { slug, title, section, parentSlug, description, tags, internalNotes, workflowStatus, metaTitle, metaDescription, canonicalUrl, version, scheduledAt, content };
 }
 
 function normalizeSectionName(value) {
@@ -785,6 +854,11 @@ function normalizeScheduledAt(value) {
   if (!raw) return "";
   const date = new Date(raw);
   return Number.isNaN(date.getTime()) ? "" : date.toISOString();
+}
+
+function normalizeWorkflowStatus(value) {
+  const status = String(value || "normal").trim().toLowerCase();
+  return ["normal", "needs-review", "archived", "deprecated"].includes(status) ? status : "normal";
 }
 
 function validateSectionExists(sections, sectionName) {
@@ -901,6 +975,8 @@ function migrateDocs(raw) {
           parentSlug: page.parentSlug || "",
           description: page.description || "",
           tags: normalizeTags(page.tags),
+          internalNotes: page.internalNotes || "",
+          workflowStatus: normalizeWorkflowStatus(page.workflowStatus),
           metaTitle: page.metaTitle || "",
           metaDescription: page.metaDescription || "",
           canonicalUrl: page.canonicalUrl || "",
@@ -1163,6 +1239,8 @@ function exportMarkdownArchive(docs) {
     chunks.push(`parentSlug: ${JSON.stringify(page.parentSlug || "")}`);
     chunks.push(`description: ${JSON.stringify(page.description || "")}`);
     chunks.push(`tags: ${JSON.stringify(normalizeTags(page.tags))}`);
+    chunks.push(`internalNotes: ${JSON.stringify(page.internalNotes || "")}`);
+    chunks.push(`workflowStatus: ${JSON.stringify(normalizeWorkflowStatus(page.workflowStatus))}`);
     chunks.push(`metaTitle: ${JSON.stringify(page.metaTitle || "")}`);
     chunks.push(`metaDescription: ${JSON.stringify(page.metaDescription || "")}`);
     chunks.push(`canonicalUrl: ${JSON.stringify(page.canonicalUrl || "")}`);
@@ -1200,6 +1278,48 @@ function createBackupArchive(docs) {
       entries.push({
         name: `public/uploads/${entry.name}`,
         content: fs.readFileSync(filePath),
+      });
+    }
+  }
+
+  return createZip(entries);
+}
+
+function createStaticSiteArchive(docs) {
+  const publishedPages = getPublishedPages(docs);
+  const entries = [
+    {
+      name: "index.html",
+      content: Buffer.from(renderStaticIndex(docs, publishedPages), "utf8"),
+    },
+    {
+      name: "public/style.css",
+      content: fs.existsSync(path.join(PUBLIC_DIR, "style.css"))
+        ? fs.readFileSync(path.join(PUBLIC_DIR, "style.css"))
+        : Buffer.from("", "utf8"),
+    },
+  ];
+
+  for (const assetName of ["theme.js"]) {
+    const assetPath = path.join(PUBLIC_DIR, assetName);
+    if (fs.existsSync(assetPath)) {
+      entries.push({ name: `public/${assetName}`, content: fs.readFileSync(assetPath) });
+    }
+  }
+
+  for (const page of publishedPages) {
+    entries.push({
+      name: `docs/${page.slug}.html`,
+      content: Buffer.from(renderStaticDocsPage(docs, page, publishedPages), "utf8"),
+    });
+  }
+
+  if (fs.existsSync(UPLOADS_DIR)) {
+    for (const entry of fs.readdirSync(UPLOADS_DIR, { withFileTypes: true })) {
+      if (!entry.isFile()) continue;
+      entries.push({
+        name: `public/uploads/${entry.name}`,
+        content: fs.readFileSync(path.join(UPLOADS_DIR, entry.name)),
       });
     }
   }
@@ -1321,6 +1441,8 @@ function parseArchivePage(chunk) {
     parentSlug: String(meta.parentSlug || "").trim(),
     description: String(meta.description || "").trim(),
     tags: normalizeTags(meta.tags),
+    internalNotes: String(meta.internalNotes || "").trim(),
+    workflowStatus: normalizeWorkflowStatus(meta.workflowStatus),
     metaTitle: String(meta.metaTitle || "").trim(),
     metaDescription: String(meta.metaDescription || "").trim(),
     canonicalUrl: String(meta.canonicalUrl || "").trim(),
@@ -1344,6 +1466,8 @@ function parseSingleMarkdownPage(markdown) {
     parentSlug: "",
     description: "",
     tags: [],
+    internalNotes: "",
+    workflowStatus: "normal",
     metaTitle: "",
     metaDescription: "",
     canonicalUrl: "",
@@ -1680,6 +1804,9 @@ function renderAppShell() {
               <button id="export-zip-button" class="icon-button topbar-icon-button" type="button" aria-label="Export ZIP Backup" title="Export ZIP Backup">
                 <span class="button-icon asset-archive" aria-hidden="true"></span>
               </button>
+              <button id="export-html-button" class="icon-button topbar-icon-button" type="button" aria-label="Export Static HTML" title="Export Static HTML">
+                <span class="button-icon asset-layout-panel-top" aria-hidden="true"></span>
+              </button>
               <button id="import-markdown-button" class="icon-button topbar-icon-button" type="button" aria-label="Import Markdown" title="Import Markdown">
                 <span class="button-icon asset-file-up" aria-hidden="true"></span>
               </button>
@@ -1712,6 +1839,9 @@ function renderAppShell() {
               </button>
               <button id="redirect-manager-button" class="icon-button topbar-icon-button" type="button" aria-label="Redirect Manager" title="Redirect Manager">
                 <span class="button-icon asset-trending-up-down" aria-hidden="true"></span>
+              </button>
+              <button id="activity-log-button" class="icon-button topbar-icon-button" type="button" aria-label="Activity Log" title="Activity Log">
+                <span class="button-icon asset-sliders" aria-hidden="true"></span>
               </button>
               <input id="import-markdown-input" type="file" accept=".md,.markdown,text/markdown,text/plain" hidden />
               <button id="copy-link-button" class="icon-button topbar-icon-button" type="button" aria-label="Copy public link" title="Copy Public Link">
@@ -1790,6 +1920,19 @@ function renderAppShell() {
                 <label class="tags-field">
                   <span>Tags</span>
                   <input id="tags-input" name="tags" type="text" placeholder="api, internal, beta" />
+                </label>
+                <label class="workflow-status-field">
+                  <span>Editorial Status</span>
+                  <select id="workflow-status-input" name="workflowStatus">
+                    <option value="normal">Normal</option>
+                    <option value="needs-review">Needs review</option>
+                    <option value="archived">Archived</option>
+                    <option value="deprecated">Deprecated</option>
+                  </select>
+                </label>
+                <label class="internal-notes-field">
+                  <span>Internal Notes</span>
+                  <textarea id="internal-notes-input" name="internalNotes" rows="3" placeholder="Catatan internal, TODO, atau reminder. Tidak tampil di public docs."></textarea>
                 </label>
                 <label class="previous-slugs-field">
                   <span>Previous Slugs</span>
@@ -1944,6 +2087,43 @@ function renderDocsPage(docs, currentPage) {
     <script src="/public/docs-search.js"></script>
   </body>
 </html>`;
+}
+
+function renderStaticIndex(docs, publishedPages) {
+  const firstPage = publishedPages[0];
+  return `<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>${escapeHtml(docs.project.title || "DaaS Static Docs")}</title>
+    <link rel="stylesheet" href="public/style.css" />
+    ${firstPage ? `<meta http-equiv="refresh" content="0; url=docs/${escapeHtml(firstPage.slug)}.html" />` : ""}
+  </head>
+  <body class="not-found-shell">
+    <div class="not-found-card">
+      <p class="eyebrow">Static export</p>
+      <h1>${escapeHtml(docs.project.title || "DaaS Static Docs")}</h1>
+      ${
+        firstPage
+          ? `<p>Open the exported documentation.</p><a class="primary-button" href="docs/${escapeHtml(firstPage.slug)}.html">Open Docs</a>`
+          : `<p>No published pages were available when this export was created.</p>`
+      }
+    </div>
+  </body>
+</html>`;
+}
+
+function renderStaticDocsPage(docs, currentPage, publishedPages) {
+  const html = renderDocsPage({ ...docs, pages: publishedPages }, currentPage);
+  return html
+    .replace(/href="\/"/g, 'href="../index.html"')
+    .replace(/href="\/app"/g, 'href="#"')
+    .replace(/href="\/docs\/([^"#?]+)"/g, 'href="$1.html"')
+    .replace(/href="\/public\//g, 'href="../public/')
+    .replace(/src="\/public\//g, 'src="../public/')
+    .replace(/<script src="\.\.\/public\/docs-search\.js"><\/script>/g, "")
+    .replace(/<script src="\/public\/docs-search\.js"><\/script>/g, "");
 }
 
 function renderNotFound(docs, slug) {

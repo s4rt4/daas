@@ -793,6 +793,15 @@ a.topbar-open-docs .open-docs-glyph,
   grid-column: 1 / -1;
 }
 
+.internal-notes-field {
+  grid-column: 1 / -1;
+}
+
+.internal-notes-field textarea {
+  min-height: 92px;
+  resize: vertical;
+}
+
 .tags-field input {
   letter-spacing: 0.01em;
 }
@@ -1463,6 +1472,22 @@ a.topbar-open-docs .open-docs-glyph,
   background: #18724e;
 }
 
+.page-workflow-pill {
+  display: inline-flex;
+  align-items: center;
+  min-height: 18px;
+  margin-left: 8px;
+  padding: 0 7px;
+  border-radius: 999px;
+  background: rgba(199, 86, 42, 0.1);
+  color: #9b3c1e;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
 .icon-button {
   width: 26px;
   height: 26px;
@@ -1850,6 +1875,7 @@ a.topbar-open-docs .open-docs-glyph,
 .media-report,
 .redirect-report,
 .history-report,
+.audit-report,
 .publish-review {
   display: grid;
   gap: 10px;
@@ -1953,7 +1979,8 @@ a.topbar-open-docs .open-docs-glyph,
 
 .publish-stat,
 .publish-preview-card,
-.history-card {
+.history-card,
+.audit-card {
   border: 1px solid rgba(217, 208, 191, 0.7);
   border-radius: 18px;
   background: rgba(255, 252, 245, 0.72);
@@ -1973,7 +2000,8 @@ a.topbar-open-docs .open-docs-glyph,
 
 .publish-stat span,
 .publish-preview-card span,
-.history-card span {
+.history-card span,
+.audit-card span {
   color: var(--muted);
   font-size: 12px;
 }
@@ -1985,7 +2013,8 @@ a.topbar-open-docs .open-docs-glyph,
 }
 
 .publish-preview-card p,
-.history-card p {
+.history-card p,
+.audit-card p {
   margin: 0;
   color: var(--text);
 }
@@ -1996,6 +2025,12 @@ a.topbar-open-docs .open-docs-glyph,
   align-items: center;
   gap: 14px;
   padding: 14px;
+}
+
+.audit-card {
+  display: grid;
+  gap: 5px;
+  padding: 13px 14px;
 }
 
 .history-card div {
