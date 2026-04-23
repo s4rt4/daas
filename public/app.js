@@ -18,6 +18,7 @@ const slugInput = document.getElementById("slug-input");
 const sectionInput = document.getElementById("section-input");
 const parentSelect = document.getElementById("parent-select");
 const descriptionInput = document.getElementById("description-input");
+const tagsInput = document.getElementById("tags-input");
 const metaTitleInput = document.getElementById("meta-title-input");
 const metaDescriptionInput = document.getElementById("meta-description-input");
 const canonicalUrlInput = document.getElementById("canonical-url-input");
@@ -225,6 +226,7 @@ function bindEvents() {
     sectionInput.value = state.sections[0] || "";
     parentSelect.value = "";
     descriptionInput.value = "";
+    tagsInput.value = "";
     metaTitleInput.value = "";
     metaDescriptionInput.value = "";
     canonicalUrlInput.value = "";
@@ -258,7 +260,7 @@ function bindEvents() {
     queuePreview();
     queueAutosave();
   });
-  [metaTitleInput, metaDescriptionInput, canonicalUrlInput, versionInput].forEach((input) => {
+  [tagsInput, metaTitleInput, metaDescriptionInput, canonicalUrlInput, versionInput].forEach((input) => {
     input.addEventListener("input", queueAutosave);
     input.addEventListener("change", queueAutosave);
   });
@@ -299,6 +301,7 @@ function renderPageList() {
         page.slug,
         page.section,
         page.description,
+        Array.isArray(page.tags) ? page.tags.join(" ") : "",
         page.searchText,
       ]
         .join(" ")
@@ -453,6 +456,7 @@ async function selectPage(slug) {
   rebuildParentOptions(page.slug);
   parentSelect.value = page.parentSlug || "";
   descriptionInput.value = page.description || "";
+  tagsInput.value = Array.isArray(page.tags) ? page.tags.join(", ") : "";
   metaTitleInput.value = page.metaTitle || "";
   metaDescriptionInput.value = page.metaDescription || "";
   canonicalUrlInput.value = page.canonicalUrl || "";
@@ -1460,12 +1464,32 @@ function currentPayload() {
     section: sectionInput.value || state.sections[0] || "General",
     parentSlug: parentSelect.value || "",
     description: descriptionInput.value,
+    tags: parseTagsInput(tagsInput.value),
     metaTitle: metaTitleInput.value,
     metaDescription: metaDescriptionInput.value,
     canonicalUrl: canonicalUrlInput.value,
     version: versionInput.value || "latest",
     content: contentInput.value,
   };
+}
+
+function parseTagsInput(value) {
+  return Array.from(
+    new Set(
+      String(value || "")
+        .split(/[,#\n]/)
+        .map((tag) =>
+          tag
+            .trim()
+            .toLowerCase()
+            .replace(/[^a-z0-9\s-]/g, "")
+            .replace(/\s+/g, "-")
+            .replace(/-+/g, "-")
+            .replace(/^-|-$/g, "")
+        )
+        .filter(Boolean)
+    )
+  ).slice(0, 12);
 }
 
 function setSaveStatus(message) {
@@ -1585,6 +1609,7 @@ function applyEmergencyDraft(draft) {
   rebuildParentOptions(state.originalSlug || state.selectedSlug);
   parentSelect.value = draft.parentSlug || "";
   descriptionInput.value = draft.description || "";
+  tagsInput.value = Array.isArray(draft.tags) ? draft.tags.join(", ") : draft.tags || "";
   metaTitleInput.value = draft.metaTitle || "";
   metaDescriptionInput.value = draft.metaDescription || "";
   canonicalUrlInput.value = draft.canonicalUrl || "";
@@ -1649,6 +1674,7 @@ function renderPreviewShell(data) {
   const title = escapeHtml(titleInput.value.trim() || "Untitled Page");
   const article = data.html || "<p>Mulai mengetik untuk melihat preview.</p>";
   const description = descriptionInput.value.trim();
+  const tags = parseTagsInput(tagsInput.value);
 
   return `<div class="preview-docs-shell">
     <div class="preview-docs-navbar">
@@ -1660,6 +1686,7 @@ function renderPreviewShell(data) {
     </div>
     <div class="preview-main">
       <article class="docs-prose preview-prose">
+        ${tags.length ? `<div class="docs-page-meta">${tags.map((tag) => `<span class="docs-tag">#${escapeHtml(tag)}</span>`).join("")}</div>` : ""}
         ${description ? `<p class="preview-description">${escapeHtml(description)}</p>` : ""}
         ${article}
       </article>

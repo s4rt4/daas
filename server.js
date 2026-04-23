@@ -50,6 +50,7 @@ const server = http.createServer(async (req, res) => {
           section: page.section || "General",
           parentSlug: page.parentSlug || "",
           description: page.description || "",
+          tags: Array.isArray(page.tags) ? page.tags : [],
           searchText: summarizeSearchText(page.draftContent || page.publishedContent || ""),
           updatedAt: page.updatedAt,
           order: page.order || 0,
@@ -98,6 +99,7 @@ const server = http.createServer(async (req, res) => {
         section: normalized.section,
         parentSlug: normalized.parentSlug,
         description: normalized.description,
+        tags: normalized.tags,
         metaTitle: normalized.metaTitle,
         metaDescription: normalized.metaDescription,
         canonicalUrl: normalized.canonicalUrl,
@@ -238,6 +240,7 @@ const server = http.createServer(async (req, res) => {
           section: imported.section,
           parentSlug: imported.parentSlug,
           description: imported.description,
+          tags: imported.tags,
           metaTitle: imported.metaTitle,
           metaDescription: imported.metaDescription,
           canonicalUrl: imported.canonicalUrl,
@@ -723,6 +726,7 @@ function normalizePageInput(payload) {
   const section = String(payload.section || "General").trim() || "General";
   const parentSlug = String(payload.parentSlug || "").trim();
   const description = String(payload.description || "").trim();
+  const tags = normalizeTags(payload.tags);
   const metaTitle = String(payload.metaTitle || "").trim();
   const metaDescription = String(payload.metaDescription || "").trim();
   const canonicalUrl = String(payload.canonicalUrl || "").trim();
@@ -737,11 +741,35 @@ function normalizePageInput(payload) {
     throw new Error("Page cannot be its own parent.");
   }
 
-  return { slug, title, section, parentSlug, description, metaTitle, metaDescription, canonicalUrl, version, content };
+  return { slug, title, section, parentSlug, description, tags, metaTitle, metaDescription, canonicalUrl, version, content };
 }
 
 function normalizeSectionName(value) {
   return String(value || "").trim().replace(/\s+/g, " ");
+}
+
+function normalizeTags(value) {
+  const tags = Array.isArray(value)
+    ? value
+    : String(value || "")
+        .split(/[,#\n]/)
+        .map((item) => item.trim());
+
+  return Array.from(
+    new Set(
+      tags
+        .map((tag) =>
+          String(tag || "")
+            .trim()
+            .toLowerCase()
+            .replace(/[^a-z0-9\s-]/g, "")
+            .replace(/\s+/g, "-")
+            .replace(/-+/g, "-")
+            .replace(/^-|-$/g, "")
+        )
+        .filter(Boolean)
+    )
+  ).slice(0, 12);
 }
 
 function validateSectionExists(sections, sectionName) {
@@ -857,6 +885,7 @@ function migrateDocs(raw) {
         section: sections.includes(normalizeSectionName(page.section || "")) ? normalizeSectionName(page.section) : sections[0],
           parentSlug: page.parentSlug || "",
           description: page.description || "",
+          tags: normalizeTags(page.tags),
           metaTitle: page.metaTitle || "",
           metaDescription: page.metaDescription || "",
           canonicalUrl: page.canonicalUrl || "",
@@ -1074,6 +1103,7 @@ function exportMarkdownArchive(docs) {
     chunks.push(`section: ${JSON.stringify(page.section || "General")}`);
     chunks.push(`parentSlug: ${JSON.stringify(page.parentSlug || "")}`);
     chunks.push(`description: ${JSON.stringify(page.description || "")}`);
+    chunks.push(`tags: ${JSON.stringify(normalizeTags(page.tags))}`);
     chunks.push(`metaTitle: ${JSON.stringify(page.metaTitle || "")}`);
     chunks.push(`metaDescription: ${JSON.stringify(page.metaDescription || "")}`);
     chunks.push(`canonicalUrl: ${JSON.stringify(page.canonicalUrl || "")}`);
@@ -1230,6 +1260,7 @@ function parseArchivePage(chunk) {
     section: normalizeSectionName(meta.section || "General") || "General",
     parentSlug: String(meta.parentSlug || "").trim(),
     description: String(meta.description || "").trim(),
+    tags: normalizeTags(meta.tags),
     metaTitle: String(meta.metaTitle || "").trim(),
     metaDescription: String(meta.metaDescription || "").trim(),
     canonicalUrl: String(meta.canonicalUrl || "").trim(),
@@ -1251,6 +1282,7 @@ function parseSingleMarkdownPage(markdown) {
     section: "General",
     parentSlug: "",
     description: "",
+    tags: [],
     metaTitle: "",
     metaDescription: "",
     canonicalUrl: "",
@@ -1299,6 +1331,7 @@ function searchPublishedPages(pages, query) {
         page.slug,
         page.section,
         page.description,
+        ...(Array.isArray(page.tags) ? page.tags : []),
         stripInlineMarkdown(page.publishedContent || ""),
       ]
         .join(" ")
@@ -1313,6 +1346,7 @@ function searchPublishedPages(pages, query) {
       title: page.title,
       slug: page.slug,
       section: page.section || "General",
+      tags: Array.isArray(page.tags) ? page.tags : [],
       description: page.description || summarizeMarkdown(page.publishedContent || ""),
     }));
 }
@@ -1668,7 +1702,7 @@ function renderAppShell() {
             <details class="seo-panel">
               <summary>
                 <span>SEO & Metadata</span>
-                <small>Meta title, description, canonical, version</small>
+                <small>Meta title, tags, canonical, version</small>
               </summary>
               <div class="seo-panel-grid">
                 <label>
@@ -1686,6 +1720,10 @@ function renderAppShell() {
                 <label>
                   <span>Version</span>
                   <select id="version-input" name="version"></select>
+                </label>
+                <label class="tags-field">
+                  <span>Tags</span>
+                  <input id="tags-input" name="tags" type="text" placeholder="api, internal, beta" />
                 </label>
                 <label class="previous-slugs-field">
                   <span>Previous Slugs</span>
@@ -1771,6 +1809,7 @@ function renderDocsPage(docs, currentPage) {
   const breadcrumbs = renderDocsBreadcrumbs(orderedPages, currentPage);
   const childList = renderDocsChildren(orderedPages, currentPage);
   const readingTime = estimateReadingTime(currentPage.publishedContent || "");
+  const tags = normalizeTags(currentPage.tags);
 
   const toc = rendered.toc.length
     ? rendered.toc
@@ -1820,6 +1859,7 @@ function renderDocsPage(docs, currentPage) {
             <div class="docs-page-meta">
               <span>${readingTime} min read</span>
               ${currentPage.version ? `<span>Version ${escapeHtml(currentPage.version)}</span>` : ""}
+              ${tags.map((tag) => `<span class="docs-tag">#${escapeHtml(tag)}</span>`).join("")}
               ${currentPage.publishedAt ? `<span>Updated ${escapeHtml(new Date(currentPage.publishedAt).toLocaleDateString("id-ID"))}</span>` : ""}
             </div>
             ${currentPage.description ? `<p class="preview-description">${escapeHtml(currentPage.description)}</p>` : ""}
