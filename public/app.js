@@ -23,6 +23,7 @@ const metaTitleInput = document.getElementById("meta-title-input");
 const metaDescriptionInput = document.getElementById("meta-description-input");
 const canonicalUrlInput = document.getElementById("canonical-url-input");
 const versionInput = document.getElementById("version-input");
+const scheduledAtInput = document.getElementById("scheduled-at-input");
 const previousSlugsInput = document.getElementById("previous-slugs-input");
 const contentInput = document.getElementById("content-input");
 const heading = document.getElementById("editor-heading");
@@ -230,6 +231,7 @@ function bindEvents() {
     metaTitleInput.value = "";
     metaDescriptionInput.value = "";
     canonicalUrlInput.value = "";
+    scheduledAtInput.value = "";
     previousSlugsInput.value = "";
     state.originalSlug = "";
     updateHeading();
@@ -260,7 +262,7 @@ function bindEvents() {
     queuePreview();
     queueAutosave();
   });
-  [tagsInput, metaTitleInput, metaDescriptionInput, canonicalUrlInput, versionInput].forEach((input) => {
+  [tagsInput, metaTitleInput, metaDescriptionInput, canonicalUrlInput, versionInput, scheduledAtInput].forEach((input) => {
     input.addEventListener("input", queueAutosave);
     input.addEventListener("change", queueAutosave);
   });
@@ -461,11 +463,12 @@ async function selectPage(slug) {
   metaDescriptionInput.value = page.metaDescription || "";
   canonicalUrlInput.value = page.canonicalUrl || "";
   renderVersionOptions(page.version || "latest");
+  scheduledAtInput.value = isoToDateTimeLocal(page.scheduledAt);
   previousSlugsInput.value = (page.previousSlugs || []).join(", ");
   setEditorContent(page.content || "");
   updateHeading();
   setPageStatus(page.status || "draft");
-  setSaveStatus("Saved");
+  setSaveStatus(page.scheduledAt ? `Scheduled ${formatDateTime(page.scheduledAt)}` : "Saved");
   await maybeRecoverEmergencyDraft(page);
   await refreshPreview();
 }
@@ -1469,6 +1472,7 @@ function currentPayload() {
     metaDescription: metaDescriptionInput.value,
     canonicalUrl: canonicalUrlInput.value,
     version: versionInput.value || "latest",
+    scheduledAt: dateTimeLocalToIso(scheduledAtInput.value),
     content: contentInput.value,
   };
 }
@@ -1490,6 +1494,20 @@ function parseTagsInput(value) {
         .filter(Boolean)
     )
   ).slice(0, 12);
+}
+
+function dateTimeLocalToIso(value) {
+  if (!value) return "";
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? "" : date.toISOString();
+}
+
+function isoToDateTimeLocal(value) {
+  if (!value) return "";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  const offsetDate = new Date(date.getTime() - date.getTimezoneOffset() * 60000);
+  return offsetDate.toISOString().slice(0, 16);
 }
 
 function setSaveStatus(message) {
@@ -1614,6 +1632,7 @@ function applyEmergencyDraft(draft) {
   metaDescriptionInput.value = draft.metaDescription || "";
   canonicalUrlInput.value = draft.canonicalUrl || "";
   renderVersionOptions(draft.version || "latest");
+  scheduledAtInput.value = isoToDateTimeLocal(draft.scheduledAt);
   setEditorContent(draft.content || "");
   updateHeading();
   setSaveStatus("Recovered local draft");

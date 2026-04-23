@@ -51,6 +51,7 @@ const server = http.createServer(async (req, res) => {
           parentSlug: page.parentSlug || "",
           description: page.description || "",
           tags: Array.isArray(page.tags) ? page.tags : [],
+          scheduledAt: page.scheduledAt || "",
           searchText: summarizeSearchText(page.draftContent || page.publishedContent || ""),
           updatedAt: page.updatedAt,
           order: page.order || 0,
@@ -104,6 +105,7 @@ const server = http.createServer(async (req, res) => {
         metaDescription: normalized.metaDescription,
         canonicalUrl: normalized.canonicalUrl,
         version: normalized.version,
+        scheduledAt: normalized.scheduledAt,
         previousSlugs,
         draftContent: normalized.content,
         publishedContent: existingPage ? existingPage.publishedContent || "" : "",
@@ -245,6 +247,7 @@ const server = http.createServer(async (req, res) => {
           metaDescription: imported.metaDescription,
           canonicalUrl: imported.canonicalUrl,
           version: imported.version,
+          scheduledAt: imported.scheduledAt,
           previousSlugs: mergeImportedPreviousSlugs(existingPage, imported.previousSlugs),
           draftContent: imported.content,
           publishedContent: existingPage ? existingPage.publishedContent || "" : imported.status === "published" ? imported.content : "",
@@ -417,6 +420,7 @@ const server = http.createServer(async (req, res) => {
         publishedAt: now,
         updatedAt: now,
         status: "published",
+        scheduledAt: "",
       };
 
       writeDocs(docs);
@@ -592,6 +596,9 @@ server.listen(PORT, () => {
   console.log(`DaaS local docs running on http://localhost:${PORT}`);
 });
 
+setInterval(runScheduledPublishes, 60 * 1000);
+setTimeout(runScheduledPublishes, 1000);
+
 function ensureFileSystem() {
   if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
   if (!fs.existsSync(PUBLIC_DIR)) fs.mkdirSync(PUBLIC_DIR, { recursive: true });
@@ -731,6 +738,7 @@ function normalizePageInput(payload) {
   const metaDescription = String(payload.metaDescription || "").trim();
   const canonicalUrl = String(payload.canonicalUrl || "").trim();
   const version = String(payload.version || "latest").trim() || "latest";
+  const scheduledAt = normalizeScheduledAt(payload.scheduledAt);
   const content = String(payload.content || "");
 
   if (!slug || !title) {
@@ -741,7 +749,7 @@ function normalizePageInput(payload) {
     throw new Error("Page cannot be its own parent.");
   }
 
-  return { slug, title, section, parentSlug, description, tags, metaTitle, metaDescription, canonicalUrl, version, content };
+  return { slug, title, section, parentSlug, description, tags, metaTitle, metaDescription, canonicalUrl, version, scheduledAt, content };
 }
 
 function normalizeSectionName(value) {
@@ -770,6 +778,13 @@ function normalizeTags(value) {
         .filter(Boolean)
     )
   ).slice(0, 12);
+}
+
+function normalizeScheduledAt(value) {
+  const raw = String(value || "").trim();
+  if (!raw) return "";
+  const date = new Date(raw);
+  return Number.isNaN(date.getTime()) ? "" : date.toISOString();
 }
 
 function validateSectionExists(sections, sectionName) {
@@ -890,6 +905,7 @@ function migrateDocs(raw) {
           metaDescription: page.metaDescription || "",
           canonicalUrl: page.canonicalUrl || "",
           version: page.version || "latest",
+          scheduledAt: normalizeScheduledAt(page.scheduledAt),
           previousSlugs: Array.isArray(page.previousSlugs) ? page.previousSlugs.filter(Boolean) : [],
           draftContent: page.draftContent !== undefined ? page.draftContent : legacyContent,
         publishedContent,
@@ -946,6 +962,49 @@ function normalizeVersions(value) {
         .map((item) => item.trim());
   const cleaned = versions.map((item) => String(item || "").trim()).filter(Boolean);
   return Array.from(new Set(cleaned.length ? cleaned : ["latest"]));
+}
+
+function runScheduledPublishes() {
+  try {
+    const docs = readDocs();
+    const now = new Date();
+    const nowIso = now.toISOString();
+    let changed = false;
+
+    docs.pages = (docs.pages || []).map((page) => {
+      const scheduledAt = normalizeScheduledAt(page.scheduledAt);
+      if (!scheduledAt || Date.parse(scheduledAt) > now.getTime()) {
+        return page;
+      }
+
+      const draftContent = page.draftContent || "";
+      if (!draftContent.trim()) {
+        changed = true;
+        return { ...page, scheduledAt: "" };
+      }
+
+      changed = true;
+      const nextPage = {
+        ...page,
+        publishedContent: draftContent,
+        status: "published",
+        scheduledAt: "",
+        publishedAt: nowIso,
+        updatedAt: nowIso,
+      };
+      return {
+        ...nextPage,
+        history: appendPageHistory(nextPage, nowIso, "scheduled-publish"),
+      };
+    });
+
+    if (changed) {
+      writeDocs(docs);
+      console.log(`[scheduler] Published scheduled pages at ${nowIso}`);
+    }
+  } catch (error) {
+    console.error("[scheduler] Failed to run scheduled publish", error);
+  }
 }
 
 function checkBrokenLinks(docs) {
@@ -1108,6 +1167,7 @@ function exportMarkdownArchive(docs) {
     chunks.push(`metaDescription: ${JSON.stringify(page.metaDescription || "")}`);
     chunks.push(`canonicalUrl: ${JSON.stringify(page.canonicalUrl || "")}`);
     chunks.push(`version: ${JSON.stringify(page.version || "latest")}`);
+    chunks.push(`scheduledAt: ${JSON.stringify(normalizeScheduledAt(page.scheduledAt))}`);
     chunks.push(`order: ${JSON.stringify(page.order || 0)}`);
     chunks.push(`previousSlugs: ${JSON.stringify(Array.isArray(page.previousSlugs) ? page.previousSlugs : [])}`);
     chunks.push(`status: ${JSON.stringify(page.status || "draft")}`);
@@ -1265,6 +1325,7 @@ function parseArchivePage(chunk) {
     metaDescription: String(meta.metaDescription || "").trim(),
     canonicalUrl: String(meta.canonicalUrl || "").trim(),
     version: String(meta.version || "latest").trim() || "latest",
+    scheduledAt: normalizeScheduledAt(meta.scheduledAt),
     order: Number.isFinite(Number(meta.order)) ? Number(meta.order) : null,
     previousSlugs: Array.isArray(meta.previousSlugs) ? meta.previousSlugs.map((item) => slugify(item)).filter(Boolean) : [],
     status: meta.status === "published" ? "published" : "draft",
@@ -1287,6 +1348,7 @@ function parseSingleMarkdownPage(markdown) {
     metaDescription: "",
     canonicalUrl: "",
     version: "latest",
+    scheduledAt: "",
     order: null,
     previousSlugs: [],
     status: "draft",
@@ -1720,6 +1782,10 @@ function renderAppShell() {
                 <label>
                   <span>Version</span>
                   <select id="version-input" name="version"></select>
+                </label>
+                <label>
+                  <span>Scheduled Publish</span>
+                  <input id="scheduled-at-input" name="scheduledAt" type="datetime-local" />
                 </label>
                 <label class="tags-field">
                   <span>Tags</span>
