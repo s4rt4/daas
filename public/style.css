@@ -570,6 +570,10 @@ a.topbar-open-docs .open-docs-glyph,
   background-image: url("/public/assets/file-up.svg");
 }
 
+.asset-archive {
+  background-image: url("/public/assets/file-down.svg");
+}
+
 .asset-history {
   background-image: url("/public/assets/history.svg");
 }

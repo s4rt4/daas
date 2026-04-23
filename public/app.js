@@ -41,6 +41,7 @@ const previewModeToggle = document.getElementById("preview-mode-toggle");
 const copyLinkButton = document.getElementById("copy-link-button");
 const duplicateButton = document.getElementById("duplicate-button");
 const exportMarkdownButton = document.getElementById("export-markdown-button");
+const exportZipButton = document.getElementById("export-zip-button");
 const importMarkdownButton = document.getElementById("import-markdown-button");
 const importMarkdownInput = document.getElementById("import-markdown-input");
 const recoverDraftButton = document.getElementById("recover-draft-button");
@@ -170,6 +171,7 @@ function bindEvents() {
   copyLinkButton.addEventListener("click", copyPublicLink);
   duplicateButton.addEventListener("click", duplicatePage);
   exportMarkdownButton.addEventListener("click", exportMarkdownArchive);
+  exportZipButton.addEventListener("click", exportZipBackup);
   importMarkdownButton.addEventListener("click", () => importMarkdownInput.click());
   importMarkdownInput.addEventListener("change", importMarkdownArchive);
   recoverDraftButton.addEventListener("click", recoverDraftHistory);
@@ -613,6 +615,10 @@ function exportMarkdownArchive() {
   window.location.href = "/api/export/markdown";
 }
 
+function exportZipBackup() {
+  window.location.href = "/api/export/zip";
+}
+
 async function importMarkdownArchive(event) {
   const file = event.target.files && event.target.files[0];
   if (!file) return;
@@ -908,6 +914,7 @@ async function openCommandPalette() {
     title: "Command Palette",
     messageHtml: `<div class="command-palette">
       <button class="command-item" type="button" data-command="new-page"><strong>New Page</strong><span>Buat halaman dokumentasi baru</span></button>
+      <button class="command-item" type="button" data-command="zip-backup"><strong>Export ZIP Backup</strong><span>Download docs.json, Markdown export, dan uploads</span></button>
       <button class="command-item" type="button" data-command="page-health"><strong>Page Health</strong><span>Cek kualitas halaman aktif</span></button>
       <button class="command-item" type="button" data-command="draft-diff"><strong>Compare Draft</strong><span>Lihat perubahan draft vs published</span></button>
       <button class="command-item" type="button" data-command="media-library"><strong>Media Library</strong><span>Lihat uploaded assets dan penggunaannya</span></button>
@@ -1841,6 +1848,7 @@ function executeCommand(command, slug = "") {
     selectPage(slug);
     return;
   }
+  if (command === "zip-backup") return exportZipBackup();
   if (command === "page-health") return showPageHealth();
   if (command === "draft-diff") return showDraftDiff();
   if (command === "media-library") return openMediaLibrary();

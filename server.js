@@ -8,6 +8,13 @@ const DATA_DIR = path.join(__dirname, "data");
 const PUBLIC_DIR = path.join(__dirname, "public");
 const UPLOADS_DIR = path.join(PUBLIC_DIR, "uploads");
 const DATA_FILE = path.join(DATA_DIR, "docs.json");
+const CRC32_TABLE = Array.from({ length: 256 }, (_, index) => {
+  let value = index;
+  for (let bit = 0; bit < 8; bit += 1) {
+    value = value & 1 ? 0xedb88320 ^ (value >>> 1) : value >>> 1;
+  }
+  return value >>> 0;
+});
 
 ensureFileSystem();
 
@@ -193,6 +200,12 @@ const server = http.createServer(async (req, res) => {
       const docs = readDocs();
       const markdown = exportMarkdownArchive(docs);
       return sendTextDownload(res, markdown, `daas-v3-export-${new Date().toISOString().slice(0, 10)}.md`);
+    }
+
+    if (req.method === "GET" && pathname === "/api/export/zip") {
+      const docs = readDocs();
+      const archive = createBackupArchive(docs);
+      return sendBinaryDownload(res, archive, `daas-v3-backup-${new Date().toISOString().slice(0, 10)}.zip`, "application/zip");
     }
 
     if (req.method === "POST" && pathname === "/api/import/markdown") {
@@ -1055,6 +1068,112 @@ function exportMarkdownArchive(docs) {
   return chunks.join("\n");
 }
 
+function createBackupArchive(docs) {
+  const entries = [
+    {
+      name: "data/docs.json",
+      content: Buffer.from(`${JSON.stringify(docs, null, 2)}\n`, "utf8"),
+    },
+    {
+      name: "docs-export.md",
+      content: Buffer.from(exportMarkdownArchive(docs), "utf8"),
+    },
+  ];
+
+  if (fs.existsSync(UPLOADS_DIR)) {
+    for (const entry of fs.readdirSync(UPLOADS_DIR, { withFileTypes: true })) {
+      if (!entry.isFile()) continue;
+      const filePath = path.join(UPLOADS_DIR, entry.name);
+      entries.push({
+        name: `public/uploads/${entry.name}`,
+        content: fs.readFileSync(filePath),
+      });
+    }
+  }
+
+  return createZip(entries);
+}
+
+function createZip(entries) {
+  const localParts = [];
+  const centralParts = [];
+  let offset = 0;
+
+  for (const entry of entries) {
+    const nameBuffer = Buffer.from(entry.name.replace(/\\/g, "/"), "utf8");
+    const content = Buffer.isBuffer(entry.content) ? entry.content : Buffer.from(String(entry.content || ""), "utf8");
+    const crc = crc32(content);
+    const { time, date } = getDosDateTime(new Date());
+
+    const localHeader = Buffer.alloc(30);
+    localHeader.writeUInt32LE(0x04034b50, 0);
+    localHeader.writeUInt16LE(20, 4);
+    localHeader.writeUInt16LE(0, 6);
+    localHeader.writeUInt16LE(0, 8);
+    localHeader.writeUInt16LE(time, 10);
+    localHeader.writeUInt16LE(date, 12);
+    localHeader.writeUInt32LE(crc, 14);
+    localHeader.writeUInt32LE(content.length, 18);
+    localHeader.writeUInt32LE(content.length, 22);
+    localHeader.writeUInt16LE(nameBuffer.length, 26);
+    localHeader.writeUInt16LE(0, 28);
+
+    localParts.push(localHeader, nameBuffer, content);
+
+    const centralHeader = Buffer.alloc(46);
+    centralHeader.writeUInt32LE(0x02014b50, 0);
+    centralHeader.writeUInt16LE(20, 4);
+    centralHeader.writeUInt16LE(20, 6);
+    centralHeader.writeUInt16LE(0, 8);
+    centralHeader.writeUInt16LE(0, 10);
+    centralHeader.writeUInt16LE(time, 12);
+    centralHeader.writeUInt16LE(date, 14);
+    centralHeader.writeUInt32LE(crc, 16);
+    centralHeader.writeUInt32LE(content.length, 20);
+    centralHeader.writeUInt32LE(content.length, 24);
+    centralHeader.writeUInt16LE(nameBuffer.length, 28);
+    centralHeader.writeUInt16LE(0, 30);
+    centralHeader.writeUInt16LE(0, 32);
+    centralHeader.writeUInt16LE(0, 34);
+    centralHeader.writeUInt16LE(0, 36);
+    centralHeader.writeUInt32LE(0, 38);
+    centralHeader.writeUInt32LE(offset, 42);
+    centralParts.push(centralHeader, nameBuffer);
+
+    offset += localHeader.length + nameBuffer.length + content.length;
+  }
+
+  const centralDirectory = Buffer.concat(centralParts);
+  const localFiles = Buffer.concat(localParts);
+  const end = Buffer.alloc(22);
+  end.writeUInt32LE(0x06054b50, 0);
+  end.writeUInt16LE(0, 4);
+  end.writeUInt16LE(0, 6);
+  end.writeUInt16LE(entries.length, 8);
+  end.writeUInt16LE(entries.length, 10);
+  end.writeUInt32LE(centralDirectory.length, 12);
+  end.writeUInt32LE(localFiles.length, 16);
+  end.writeUInt16LE(0, 20);
+
+  return Buffer.concat([localFiles, centralDirectory, end]);
+}
+
+function getDosDateTime(date) {
+  const year = Math.max(date.getFullYear(), 1980);
+  return {
+    time: (date.getHours() << 11) | (date.getMinutes() << 5) | Math.floor(date.getSeconds() / 2),
+    date: ((year - 1980) << 9) | ((date.getMonth() + 1) << 5) | date.getDate(),
+  };
+}
+
+function crc32(buffer) {
+  let crc = 0xffffffff;
+  for (const byte of buffer) {
+    crc = CRC32_TABLE[(crc ^ byte) & 0xff] ^ (crc >>> 8);
+  }
+  return (crc ^ 0xffffffff) >>> 0;
+}
+
 function parseMarkdownImport(markdown) {
   const value = String(markdown || "").replace(/\r\n/g, "\n").trim();
   if (!value) return [];
@@ -1415,6 +1534,9 @@ function renderAppShell() {
             <div class="topbar-utility-actions">
               <button id="export-markdown-button" class="icon-button topbar-icon-button" type="button" aria-label="Export Markdown" title="Export Markdown">
                 <span class="button-icon asset-file-down" aria-hidden="true"></span>
+              </button>
+              <button id="export-zip-button" class="icon-button topbar-icon-button" type="button" aria-label="Export ZIP Backup" title="Export ZIP Backup">
+                <span class="button-icon asset-archive" aria-hidden="true"></span>
               </button>
               <button id="import-markdown-button" class="icon-button topbar-icon-button" type="button" aria-label="Import Markdown" title="Import Markdown">
                 <span class="button-icon asset-file-up" aria-hidden="true"></span>
@@ -2014,6 +2136,15 @@ function sendTextDownload(res, text, filename) {
     "Content-Disposition": `attachment; filename="${filename}"`,
   });
   res.end(text);
+}
+
+function sendBinaryDownload(res, buffer, filename, contentType = "application/octet-stream") {
+  res.writeHead(200, {
+    "Content-Type": contentType,
+    "Content-Length": buffer.length,
+    "Content-Disposition": `attachment; filename="${filename}"`,
+  });
+  res.end(buffer);
 }
 
 function redirect(res, location, statusCode = 302) {
