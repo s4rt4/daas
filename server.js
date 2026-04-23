@@ -2195,7 +2195,7 @@ function renderDocsPage(docs, currentPage) {
     ${docs.project.faviconUrl ? `<link rel="icon" href="${escapeHtml(docs.project.faviconUrl)}" />` : ""}
     <link rel="stylesheet" href="/public/style.css" />
   </head>
-  <body>
+  <body class="docs-page-body">
     <div class="${escapeHtml(shellClasses)}" data-theme="${escapeHtml(docs.project.defaultTheme || "light")}" style="${escapeHtml(renderProjectStyle(docs.project))}">
       <header class="docs-navbar">
         <div class="docs-brand">

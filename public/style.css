@@ -29,6 +29,11 @@ body {
     linear-gradient(180deg, #f8f3e8 0%, #f3ede2 100%);
 }
 
+body.docs-page-body {
+  height: 100vh;
+  overflow: hidden;
+}
+
 a {
   color: inherit;
 }
@@ -3235,6 +3240,11 @@ body.sidebar-collapsed .page-card:focus-within::after {
 }
 
 @media (max-width: 1080px) {
+  body.docs-page-body {
+    height: auto;
+    overflow: auto;
+  }
+
   .editor-layout,
   .docs-layout {
     grid-template-columns: 1fr;
