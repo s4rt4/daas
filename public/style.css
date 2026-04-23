@@ -34,6 +34,11 @@ body.docs-page-body {
   overflow: hidden;
 }
 
+body.app-shell {
+  height: 100vh;
+  overflow: hidden;
+}
+
 a {
   color: inherit;
 }
@@ -209,10 +214,12 @@ code {
 }
 
 .editor-layout {
-  min-height: 100vh;
+  height: 100vh;
+  min-height: 0;
   display: grid;
   grid-template-columns: 320px minmax(0, 1fr);
   transition: grid-template-columns 0.22s ease;
+  overflow: hidden;
 }
 
 .editor-sidebar,
@@ -227,6 +234,10 @@ code {
   background: rgba(255, 249, 240, 0.72);
   border-right: 1px solid var(--border);
   backdrop-filter: blur(12px);
+  height: 100%;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
 }
 
 .brand-block {
@@ -326,6 +337,16 @@ code {
 
 .sidebar-body {
   margin-top: 14px;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+.sidebar-body::-webkit-scrollbar {
+  width: 0;
+  height: 0;
 }
 
 .sidebar-toggle-icon {
@@ -357,6 +378,11 @@ code {
   padding-top: 24px;
   padding-left: 28px;
   padding-right: 28px;
+  height: 100%;
+  min-height: 0;
+  overflow: auto;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(214, 198, 175, 0.24) transparent;
 }
 
 .editor-topbar {
@@ -3240,6 +3266,11 @@ body.sidebar-collapsed .page-card:focus-within::after {
 }
 
 @media (max-width: 1080px) {
+  body.app-shell {
+    height: auto;
+    overflow: auto;
+  }
+
   body.docs-page-body {
     height: auto;
     overflow: auto;
@@ -3253,6 +3284,22 @@ body.sidebar-collapsed .page-card:focus-within::after {
   .editor-sidebar,
   .editor-main {
     padding: 24px;
+  }
+
+  .editor-layout {
+    height: auto;
+    min-height: 100vh;
+    overflow: visible;
+  }
+
+  .editor-sidebar,
+  .editor-main {
+    height: auto;
+    overflow: visible;
+  }
+
+  .sidebar-body {
+    overflow: visible;
   }
 
   .editor-meta-grid {
