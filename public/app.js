@@ -1372,6 +1372,12 @@ function buildPageHealthChecks() {
 function getDocTemplates() {
   return [
     {
+      id: "quick-start",
+      title: "Quick Start",
+      description: "Pembuka cepat untuk user baru.",
+      content: "\n## Quick Start\n\nGunakan halaman ini untuk membantu user mencapai hasil pertama secepat mungkin.\n\n## Yang akan dibuat\n\n* Output utama yang akan user dapatkan\n* Estimasi waktu pengerjaan\n* Hal yang perlu disiapkan\n\n## Langkah cepat\n\n1. Buka dashboard.\n2. Lengkapi konfigurasi minimal.\n3. Simpan perubahan.\n4. Cek hasil di halaman publik.\n\n:::tip\nTambahkan link ke halaman lanjutan jika user ingin konfigurasi lebih detail.\n:::\n",
+    },
+    {
       id: "api",
       title: "API Endpoint",
       description: "Struktur endpoint, parameter, response, dan error.",
@@ -1406,6 +1412,90 @@ function getDocTemplates() {
       title: "Product Overview",
       description: "Ringkasan fitur dan use case.",
       content: "\n## Overview\n\nJelaskan produk secara singkat.\n\n## Use Case\n\n* Use case pertama\n* Use case kedua\n* Use case ketiga\n\n## Batasan\n\nJelaskan hal yang belum didukung agar ekspektasi user jelas.\n",
+    },
+    {
+      id: "installation",
+      title: "Installation",
+      description: "Panduan instalasi package, app, atau tool.",
+      content: "\n## Installation\n\nJelaskan cara memasang produk atau library.\n\n## Requirements\n\n* Node.js versi minimum\n* Akses repository atau package manager\n* Environment variable yang diperlukan\n\n## Install\n\n```bash\nnpm install package-name\n```\n\n## Verify\n\n```bash\npackage-name --version\n```\n\n## Next step\n\nLanjutkan ke konfigurasi dasar setelah instalasi selesai.\n",
+    },
+    {
+      id: "configuration",
+      title: "Configuration",
+      description: "Template environment variable dan opsi konfigurasi.",
+      content: "\n## Configuration\n\nGunakan bagian ini untuk menjelaskan opsi konfigurasi yang tersedia.\n\n| Key | Required | Default | Description |\n| --- | --- | --- | --- |\n| `APP_URL` | yes | - | URL utama aplikasi |\n| `API_KEY` | yes | - | Token akses API |\n| `CACHE_TTL` | no | `300` | Durasi cache dalam detik |\n\n## Example\n\n```env\nAPP_URL=http://localhost:3017\nAPI_KEY=change-me\nCACHE_TTL=300\n```\n\n:::warning\nJangan commit secret atau API key asli ke repository.\n:::\n",
+    },
+    {
+      id: "sdk-usage",
+      title: "SDK Usage",
+      description: "Contoh penggunaan SDK atau helper library.",
+      content: "\n## SDK Usage\n\nJelaskan cara memakai SDK dari awal sampai menghasilkan output.\n\n## Initialize client\n\n```js\nconst client = createClient({\n  apiKey: process.env.API_KEY,\n});\n```\n\n## Basic example\n\n```js\nconst result = await client.docs.create({\n  title: \"Getting Started\",\n  slug: \"getting-started\",\n});\n```\n\n## Error handling\n\n```js\ntry {\n  await client.docs.create(payload);\n} catch (error) {\n  console.error(error.message);\n}\n```\n",
+    },
+    {
+      id: "data-schema",
+      title: "Data Schema",
+      description: "Dokumentasi field, tipe data, dan aturan validasi.",
+      content: "\n## Data Schema\n\nJelaskan struktur data utama yang dipakai fitur ini.\n\n| Field | Type | Required | Notes |\n| --- | --- | --- | --- |\n| `slug` | string | yes | Identifier unik untuk URL |\n| `title` | string | yes | Nama halaman yang tampil ke user |\n| `status` | string | yes | `draft` atau `published` |\n| `updatedAt` | ISO date | yes | Waktu terakhir diperbarui |\n\n## Example object\n\n```json\n{\n  \"slug\": \"getting-started\",\n  \"title\": \"Getting Started\",\n  \"status\": \"published\"\n}\n```\n",
+    },
+    {
+      id: "webhook",
+      title: "Webhook Event",
+      description: "Format event, payload, retry, dan signature.",
+      content: "\n## Webhook Event\n\nJelaskan kapan webhook dikirim dan apa yang perlu dilakukan consumer.\n\n## Event name\n\n`page.published`\n\n## Payload\n\n```json\n{\n  \"event\": \"page.published\",\n  \"data\": {\n    \"slug\": \"getting-started\",\n    \"title\": \"Getting Started\"\n  }\n}\n```\n\n## Retry behavior\n\n* Sistem akan retry jika endpoint mengembalikan status non-2xx.\n* Pastikan handler bersifat idempotent.\n\n## Security\n\nVerifikasi signature sebelum memproses payload.\n",
+    },
+    {
+      id: "error-reference",
+      title: "Error Reference",
+      description: "Daftar error code, penyebab, dan cara memperbaiki.",
+      content: "\n## Error Reference\n\n| Code | Meaning | How to fix |\n| --- | --- | --- |\n| `INVALID_SLUG` | Slug tidak valid | Gunakan huruf kecil, angka, dan dash |\n| `PAGE_NOT_FOUND` | Halaman tidak ditemukan | Pastikan slug benar |\n| `PUBLISH_FAILED` | Publish gagal | Cek konten, koneksi, dan permission |\n\n## Example response\n\n```json\n{\n  \"error\": \"PAGE_NOT_FOUND\",\n  \"message\": \"Page does not exist.\"\n}\n```\n",
+    },
+    {
+      id: "release-notes",
+      title: "Release Notes",
+      description: "Ringkasan rilis yang enak dibaca user produk.",
+      content: "\n## Release Notes\n\n### Highlights\n\n* Fitur utama yang paling penting.\n* Perbaikan yang paling terasa untuk user.\n\n### New\n\n* Tambahkan fitur baru di sini.\n\n### Improved\n\n* Jelaskan peningkatan UX, performa, atau stabilitas.\n\n### Fixed\n\n* Jelaskan bug yang sudah diperbaiki.\n\n### Known issues\n\n* Catat batasan yang masih perlu diketahui user.\n",
+    },
+    {
+      id: "migration-guide",
+      title: "Migration Guide",
+      description: "Panduan pindah versi tanpa bikin user tersesat.",
+      content: "\n## Migration Guide\n\nGunakan halaman ini untuk membantu user berpindah dari versi lama ke versi baru.\n\n## Before you start\n\n* Backup data lama.\n* Catat konfigurasi aktif.\n* Pastikan dependency sudah kompatibel.\n\n## Breaking changes\n\n| Old behavior | New behavior | Action |\n| --- | --- | --- |\n| Jelaskan perilaku lama | Jelaskan perilaku baru | Jelaskan perubahan yang perlu user lakukan |\n\n## Steps\n\n1. Update dependency.\n2. Jalankan migrasi data.\n3. Verifikasi output.\n4. Publish perubahan.\n\n## Rollback\n\nJelaskan cara kembali ke versi sebelumnya jika migrasi gagal.\n",
+    },
+    {
+      id: "security",
+      title: "Security Notes",
+      description: "Best practice keamanan, token, dan akses.",
+      content: "\n## Security Notes\n\n## Secrets\n\n* Simpan API key di environment variable.\n* Jangan menaruh secret di Markdown publik.\n* Rotasi token jika pernah terlanjur terekspos.\n\n## Access control\n\nJelaskan siapa yang boleh membaca, menulis, atau publish halaman.\n\n## Checklist\n\n* Secret tidak masuk repository.\n* Link internal tidak membuka data sensitif.\n* Gambar atau file upload sudah aman untuk publik.\n",
+    },
+    {
+      id: "onboarding-checklist",
+      title: "Onboarding Checklist",
+      description: "Checklist setup untuk user atau tim baru.",
+      content: "\n## Onboarding Checklist\n\nGunakan checklist ini agar user tahu progres setup mereka.\n\n- [ ] Buat project baru.\n- [ ] Lengkapi judul dan deskripsi project.\n- [ ] Buat halaman pertama.\n- [ ] Publish halaman.\n- [ ] Cek public docs.\n- [ ] Tambahkan metadata SEO.\n- [ ] Jalankan broken link checker.\n\n## Definition of done\n\nDokumentasi dianggap siap jika halaman utama sudah publish dan semua link penting valid.\n",
+    },
+    {
+      id: "glossary",
+      title: "Glossary",
+      description: "Daftar istilah penting agar docs konsisten.",
+      content: "\n## Glossary\n\n| Term | Meaning |\n| --- | --- |\n| Draft | Versi konten yang sedang diedit dan belum live |\n| Published | Versi konten yang tampil di public docs |\n| Slug | Identifier URL untuk sebuah halaman |\n| Section | Kategori utama di sidebar docs |\n\n## Usage guideline\n\nGunakan istilah yang sama di semua halaman agar user tidak bingung.\n",
+    },
+    {
+      id: "best-practices",
+      title: "Best Practices",
+      description: "Rekomendasi pola penggunaan yang aman dan rapi.",
+      content: "\n## Best Practices\n\n## Do\n\n* Pakai judul yang spesifik.\n* Mulai halaman dengan konteks singkat.\n* Tambahkan contoh nyata.\n* Tutup halaman dengan next step.\n\n## Avoid\n\n* Menjelaskan terlalu banyak hal dalam satu halaman.\n* Memakai istilah berbeda untuk konsep yang sama.\n* Membiarkan link rusak terlalu lama.\n\n:::tip\nJika halaman mulai terlalu panjang, pecah menjadi parent page dan child page.\n:::\n",
+    },
+    {
+      id: "decision-record",
+      title: "Decision Record",
+      description: "Catatan keputusan teknis atau produk.",
+      content: "\n## Decision Record\n\n## Context\n\nJelaskan masalah atau tradeoff yang sedang dihadapi.\n\n## Decision\n\nTulis keputusan yang diambil secara jelas.\n\n## Alternatives considered\n\n| Option | Pros | Cons |\n| --- | --- | --- |\n| Option A | Kelebihan | Kekurangan |\n| Option B | Kelebihan | Kekurangan |\n\n## Consequences\n\n* Dampak positif.\n* Risiko yang perlu dipantau.\n* Follow-up yang perlu dikerjakan.\n",
+    },
+    {
+      id: "runbook",
+      title: "Runbook",
+      description: "Instruksi operasional saat terjadi incident.",
+      content: "\n## Runbook\n\n## When to use\n\nJelaskan kondisi kapan runbook ini dipakai.\n\n## Symptoms\n\n* Gejala pertama.\n* Gejala kedua.\n\n## Immediate action\n\n1. Cek status service.\n2. Lihat log error terbaru.\n3. Jalankan langkah mitigasi.\n\n## Escalation\n\nJelaskan siapa yang harus dihubungi dan informasi apa yang perlu disiapkan.\n\n## Post-incident notes\n\nCatat root cause dan tindakan pencegahan berikutnya.\n",
     },
   ];
 }
