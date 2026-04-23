@@ -375,7 +375,7 @@ code {
 }
 
 .editor-main {
-  padding-top: 24px;
+  padding-top: 0;
   padding-left: 28px;
   padding-right: 28px;
   height: 100%;
@@ -393,7 +393,7 @@ code {
   flex-direction: column;
   align-items: stretch;
   gap: 14px;
-  margin: -24px -28px 24px;
+  margin: 0 -28px 24px;
   padding: 18px 28px 14px;
   border-bottom: 1px solid rgba(217, 208, 191, 0.6);
   background: rgba(248, 241, 229, 0.88);
