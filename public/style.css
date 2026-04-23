@@ -2539,6 +2539,10 @@ body.sidebar-collapsed .page-card:focus-within::after {
   font: inherit;
 }
 
+.docs-search-input::placeholder {
+  color: color-mix(in srgb, var(--muted) 78%, transparent);
+}
+
 .docs-search-input:focus {
   outline: none;
   border-color: var(--accent-line);
@@ -2995,6 +2999,38 @@ body.sidebar-collapsed .page-card:focus-within::after {
 
 .docs-shell[data-theme="dark"] .docs-navbar {
   background: rgba(27, 27, 29, 0.84);
+}
+
+.docs-shell[data-theme="dark"] .docs-search-input {
+  border-color: rgba(255, 248, 238, 0.12);
+  background: rgba(255, 248, 238, 0.07);
+  color: #f4efe8;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
+}
+
+.docs-shell[data-theme="dark"] .docs-search-input::placeholder {
+  color: rgba(244, 239, 232, 0.42);
+}
+
+.docs-shell[data-theme="dark"] .docs-search-input:hover {
+  border-color: rgba(255, 248, 238, 0.2);
+  background: rgba(255, 248, 238, 0.1);
+}
+
+.docs-shell[data-theme="dark"] .docs-search-input:focus {
+  border-color: rgba(231, 121, 75, 0.58);
+  background: rgba(255, 248, 238, 0.11);
+  box-shadow: 0 0 0 4px rgba(231, 121, 75, 0.16);
+}
+
+.docs-shell[data-theme="dark"] .docs-search-results {
+  border-color: rgba(255, 248, 238, 0.12);
+  background: rgba(30, 30, 32, 0.98);
+  box-shadow: 0 24px 56px rgba(0, 0, 0, 0.34);
+}
+
+.docs-shell[data-theme="dark"] .docs-search-result:hover {
+  background: rgba(231, 121, 75, 0.13);
 }
 
 .docs-shell[data-theme="dark"] .ghost-button,
