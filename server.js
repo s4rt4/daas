@@ -2113,22 +2113,24 @@ function renderAppShell() {
             <span class="sidebar-toggle-icon" aria-hidden="true"></span>
           </button>
           </div>
-          <div class="sidebar-body">
+          <div class="sidebar-controls">
             <div id="sidebar-search-wrap" class="sidebar-search-wrap">
-            <label class="sidebar-search-label" for="page-search-input">Search</label>
-            <button id="sidebar-search-toggle" class="sidebar-search-toggle" type="button" aria-label="Open search">
-              <span class="sidebar-search-icon" aria-hidden="true"></span>
-            </button>
-            <input id="page-search-input" class="sidebar-search-input" type="text" placeholder="Cari halaman..." />
+              <label class="sidebar-search-label" for="page-search-input">Search</label>
+              <button id="sidebar-search-toggle" class="sidebar-search-toggle" type="button" aria-label="Open search">
+                <span class="sidebar-search-icon" aria-hidden="true"></span>
+              </button>
+              <input id="page-search-input" class="sidebar-search-input" type="text" placeholder="Cari halaman..." />
+            </div>
+            <label class="sidebar-sort-label" for="page-sort-select">Sort</label>
+            <select id="page-sort-select" class="sidebar-sort-select">
+              <option value="manual">Manual order</option>
+              <option value="updated">Last edited</option>
+              <option value="title">A-Z title</option>
+            </select>
           </div>
-          <label class="sidebar-sort-label" for="page-sort-select">Sort</label>
-          <select id="page-sort-select" class="sidebar-sort-select">
-            <option value="manual">Manual order</option>
-            <option value="updated">Last edited</option>
-            <option value="title">A-Z title</option>
-          </select>
-          <div id="page-list" class="page-list"></div>
-        </div>
+          <div class="sidebar-body">
+            <div id="page-list" class="page-list"></div>
+          </div>
       </aside>
       <main class="editor-main">
         <div class="editor-topbar">
