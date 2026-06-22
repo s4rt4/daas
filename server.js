@@ -4,11 +4,27 @@ const path = require("path");
 const { URL } = require("url");
 
 const PORT = process.env.PORT || 3017;
-const DATA_DIR = path.join(__dirname, "data");
+const DATA_DIR = process.env.DAAS_DATA_DIR
+  ? path.resolve(process.env.DAAS_DATA_DIR)
+  : path.join(__dirname, "data");
 const PUBLIC_DIR = path.join(__dirname, "public");
 const UPLOADS_DIR = path.join(PUBLIC_DIR, "uploads");
 const DATA_FILE = path.join(DATA_DIR, "docs.json");
+const BACKUP_FILE = path.join(DATA_DIR, "docs.json.bak");
 const AUDIT_FILE = path.join(DATA_DIR, "audit.json");
+const MAX_JSON_BODY_BYTES = 5 * 1024 * 1024; // 5 MB cap on JSON request bodies
+const MAX_UPLOAD_BYTES = 10 * 1024 * 1024; // 10 MB cap on uploaded files
+const ALLOWED_UPLOAD_EXTENSIONS = new Set([".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg"]);
+const BACKUP_DIR = process.env.DAAS_BACKUP_DIR
+  ? path.resolve(process.env.DAAS_BACKUP_DIR)
+  : path.join(DATA_DIR, "backups");
+const BACKUP_KEEP = Math.max(1, Number(process.env.DAAS_BACKUP_KEEP) || 10);
+// How often automatic backups run. Set DAAS_BACKUP_INTERVAL_MS=0 to disable.
+const BACKUP_INTERVAL_MS =
+  process.env.DAAS_BACKUP_INTERVAL_MS !== undefined
+    ? Math.max(0, Number(process.env.DAAS_BACKUP_INTERVAL_MS) || 0)
+    : 6 * 60 * 60 * 1000;
+const BACKUP_FILE_PATTERN = /^daas-v3-backup-.*\.zip$/;
 const CRC32_TABLE = Array.from({ length: 256 }, (_, index) => {
   let value = index;
   for (let bit = 0; bit < 8; bit += 1) {
@@ -16,6 +32,16 @@ const CRC32_TABLE = Array.from({ length: 256 }, (_, index) => {
   }
   return value >>> 0;
 });
+
+// Thrown for bad client input so the request handler can answer 400 instead of
+// letting it fall through to the generic 500 handler.
+class ValidationError extends Error {
+  constructor(message, statusCode = 400) {
+    super(message);
+    this.name = "ValidationError";
+    this.statusCode = statusCode;
+  }
+}
 
 ensureFileSystem();
 
@@ -238,6 +264,16 @@ const server = http.createServer(async (req, res) => {
       const exportPages = getStaticExportPages(docs);
       appendAudit("export-html", { pages: exportPages.length });
       return sendBinaryDownload(res, archive, `${docs.project.exportName || "daas-v3-static"}-${new Date().toISOString().slice(0, 10)}.zip`, "application/zip");
+    }
+
+    if (req.method === "GET" && pathname === "/api/backups") {
+      return sendJson(res, { backups: listBackups(), dir: BACKUP_DIR, keep: BACKUP_KEEP });
+    }
+
+    if (req.method === "POST" && pathname === "/api/backups/run") {
+      const result = writeAutoBackup({ force: true });
+      appendAudit("backup-created", { filename: result.filename, size: result.size });
+      return sendJson(res, { ok: true, backup: result, backups: listBackups() });
     }
 
     if (req.method === "POST" && pathname === "/api/import/markdown") {
@@ -580,6 +616,15 @@ const server = http.createServer(async (req, res) => {
         return sendJson(res, { error: "No file uploaded" }, 400);
       }
 
+      const extension = path.extname(file.filename).toLowerCase();
+      if (!ALLOWED_UPLOAD_EXTENSIONS.has(extension)) {
+        return sendJson(
+          res,
+          { error: `Unsupported file type. Allowed: ${[...ALLOWED_UPLOAD_EXTENSIONS].join(", ")}` },
+          400
+        );
+      }
+
       const safeName = file.filename.replace(/[^a-zA-Z0-9._-]/g, "-");
       const uniqueName = `${Date.now()}-${safeName}`;
       fs.writeFileSync(path.join(UPLOADS_DIR, uniqueName), file.content);
@@ -623,22 +668,87 @@ const server = http.createServer(async (req, res) => {
 
     sendHtml(res, renderNotFound(readDocs(), pathname), 404);
   } catch (error) {
+    const isValidation = error instanceof ValidationError;
+    const statusCode = isValidation ? error.statusCode : 500;
+
+    // API clients expect JSON; surface validation messages but never leak stack
+    // traces for unexpected server errors.
+    if (pathname.startsWith("/api/")) {
+      sendJson(
+        res,
+        { error: isValidation ? error.message : "Internal server error" },
+        statusCode
+      );
+      if (!isValidation) console.error("[server] Unhandled error:", error);
+      return;
+    }
+
+    if (!isValidation) console.error("[server] Unhandled error:", error);
     sendHtml(
       res,
-      `<!doctype html><html><body style="font-family:sans-serif;padding:24px"><h1>Server error</h1><pre>${escapeHtml(
-        error.stack || String(error)
-      )}</pre></body></html>`,
-      500
+      `<!doctype html><html><body style="font-family:sans-serif;padding:24px"><h1>${
+        isValidation ? "Bad request" : "Server error"
+      }</h1><pre>${escapeHtml(isValidation ? error.message : "Internal server error")}</pre></body></html>`,
+      statusCode
     );
   }
 });
 
-server.listen(PORT, () => {
-  console.log(`DaaS local docs running on http://localhost:${PORT}`);
-});
+// Only start listening and run timers when launched directly (node server.js).
+// When required by tests, callers control the lifecycle via the exported server.
+if (require.main === module) {
+  server.listen(PORT, () => {
+    console.log(`DaaS local docs running on http://localhost:${PORT}`);
+  });
 
-setInterval(runScheduledPublishes, 60 * 1000);
-setTimeout(runScheduledPublishes, 1000);
+  setInterval(runScheduledPublishes, 60 * 1000);
+  setTimeout(runScheduledPublishes, 1000);
+
+  if (BACKUP_INTERVAL_MS > 0) {
+    setTimeout(runAutoBackup, 5000);
+    setInterval(runAutoBackup, BACKUP_INTERVAL_MS);
+  }
+}
+
+module.exports = {
+  server,
+  ensureFileSystem,
+  readDocs,
+  writeDocs,
+  writeFileAtomic,
+  readAuditLog,
+  writeAuditLog,
+  appendAudit,
+  migrateDocs,
+  normalizePageInput,
+  normalizeTags,
+  normalizeScheduledAt,
+  normalizeWorkflowStatus,
+  normalizeProjectSettings,
+  slugify,
+  makeUniqueSlug,
+  sortPagesByOrder,
+  normalizePageOrders,
+  parseFrontMatter,
+  parseMarkdownImport,
+  parseSingleMarkdownPage,
+  exportMarkdownArchive,
+  checkBrokenLinks,
+  estimateReadingTime,
+  summarizeSearchText,
+  searchPublishedPages,
+  getPublishedPages,
+  getHomePage,
+  runScheduledPublishes,
+  createBackupArchive,
+  writeAutoBackup,
+  listBackups,
+  pruneBackups,
+  backupSignature,
+  renderMarkdown,
+  escapeHtml,
+  paths: { DATA_DIR, DATA_FILE, BACKUP_FILE, AUDIT_FILE, UPLOADS_DIR, PUBLIC_DIR, BACKUP_DIR },
+};
 
 function ensureFileSystem() {
   if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
@@ -749,8 +859,44 @@ Parser markdown di MVP ini dibuat ringan. Fokusnya agar alur bikin docs cepat, b
   }
 }
 
+// Write `contents` to `filePath` without risking a half-written file: write to a
+// sibling temp file, flush it, then atomically rename over the target. A crash
+// mid-write leaves either the old file or the temp file, never a corrupt target.
+function writeFileAtomic(filePath, contents) {
+  const tmpPath = `${filePath}.${process.pid}.${Date.now()}.tmp`;
+  const fd = fs.openSync(tmpPath, "w");
+  try {
+    fs.writeFileSync(fd, contents);
+    fs.fsyncSync(fd);
+  } finally {
+    fs.closeSync(fd);
+  }
+  fs.renameSync(tmpPath, filePath);
+}
+
 function readDocs() {
-  const raw = JSON.parse(fs.readFileSync(DATA_FILE, "utf8"));
+  let raw;
+  try {
+    raw = JSON.parse(fs.readFileSync(DATA_FILE, "utf8"));
+  } catch (error) {
+    // docs.json is missing or corrupt (e.g. crash during an old non-atomic
+    // write). Fall back to the last good backup instead of failing every
+    // request, and keep the bad file aside for inspection.
+    if (fs.existsSync(BACKUP_FILE)) {
+      console.error(`[data] docs.json unreadable (${error.message}); restoring from backup`);
+      const recovered = fs.readFileSync(BACKUP_FILE, "utf8");
+      try {
+        if (fs.existsSync(DATA_FILE)) {
+          fs.renameSync(DATA_FILE, `${DATA_FILE}.corrupt.${Date.now()}`);
+        }
+      } catch {}
+      writeFileAtomic(DATA_FILE, recovered);
+      raw = JSON.parse(recovered);
+    } else {
+      throw new Error(`Cannot read ${DATA_FILE} and no backup is available: ${error.message}`);
+    }
+  }
+
   const migrated = migrateDocs(raw);
 
   if (JSON.stringify(raw) !== JSON.stringify(migrated)) {
@@ -761,7 +907,17 @@ function readDocs() {
 }
 
 function writeDocs(data) {
-  fs.writeFileSync(DATA_FILE, JSON.stringify(data, null, 2));
+  const serialized = JSON.stringify(data, null, 2);
+  // Snapshot the current good file as a backup before overwriting, so a future
+  // corrupt read can recover. Best-effort: a missing source just skips backup.
+  try {
+    if (fs.existsSync(DATA_FILE)) {
+      fs.copyFileSync(DATA_FILE, BACKUP_FILE);
+    }
+  } catch (error) {
+    console.error(`[data] Failed to back up docs.json: ${error.message}`);
+  }
+  writeFileAtomic(DATA_FILE, serialized);
 }
 
 function readAuditLog() {
@@ -774,7 +930,7 @@ function readAuditLog() {
 }
 
 function writeAuditLog(entries) {
-  fs.writeFileSync(AUDIT_FILE, JSON.stringify(entries.slice(0, 500), null, 2));
+  writeFileAtomic(AUDIT_FILE, JSON.stringify(entries.slice(0, 500), null, 2));
 }
 
 function appendAudit(action, details = {}) {
@@ -928,7 +1084,7 @@ function normalizeWorkflowStatus(value) {
 function validateSectionExists(sections, sectionName) {
   const hasMatch = sections.some((section) => section.toLowerCase() === sectionName.toLowerCase());
   if (!hasMatch) {
-    throw new Error("Section must be created first.");
+    throw new ValidationError("Section must be created first.");
   }
 }
 
@@ -939,43 +1095,64 @@ function validateParentAssignment(pages, normalized, existingPage) {
 
   const parentPage = pages.find((page) => page.slug === normalized.parentSlug);
   if (!parentPage) {
-    throw new Error("Parent page not found.");
+    throw new ValidationError("Parent page not found.");
   }
 
   if ((parentPage.section || "General") !== normalized.section) {
-    throw new Error("Parent page must stay in the same section.");
+    throw new ValidationError("Parent page must stay in the same section.");
   }
 
   const currentSlug = existingPage ? existingPage.slug : normalized.slug;
   if (currentSlug && isDescendantOf(pages, normalized.parentSlug, currentSlug)) {
-    throw new Error("Page cannot be assigned under its own descendant.");
+    throw new ValidationError("Page cannot be assigned under its own descendant.");
   }
 }
 
-function readBody(req) {
+function exceedsContentLength(req, maxBytes) {
+  const declared = Number(req.headers["content-length"]);
+  return Number.isFinite(declared) && declared > maxBytes;
+}
+
+function collectBody(req, maxBytes, tooLargeMessage) {
   return new Promise((resolve, reject) => {
-    let body = "";
+    // Fast path: reject before reading a byte when the client declares an
+    // oversized body, so a clean error response can still be written.
+    if (exceedsContentLength(req, maxBytes)) {
+      reject(new ValidationError(tooLargeMessage, 413));
+      return;
+    }
+
+    const chunks = [];
+    let size = 0;
     req.on("data", (chunk) => {
-      body += chunk.toString();
-    });
-    req.on("end", () => {
-      try {
-        resolve(body ? JSON.parse(body) : {});
-      } catch (error) {
-        reject(error);
+      size += chunk.length;
+      if (size > maxBytes) {
+        // Backstop for chunked uploads without a Content-Length: stop reading
+        // and tear the connection down before memory grows further.
+        reject(new ValidationError(tooLargeMessage, 413));
+        req.destroy();
+        return;
       }
+      chunks.push(Buffer.from(chunk));
     });
+    req.on("end", () => resolve(Buffer.concat(chunks)));
     req.on("error", reject);
   });
 }
 
-function readRawBody(req) {
-  return new Promise((resolve, reject) => {
-    const chunks = [];
-    req.on("data", (chunk) => chunks.push(Buffer.from(chunk)));
-    req.on("end", () => resolve(Buffer.concat(chunks)));
-    req.on("error", reject);
-  });
+async function readBody(req) {
+  const buffer = await collectBody(req, MAX_JSON_BODY_BYTES, "Request body too large");
+  const body = buffer.toString("utf8");
+  if (!body) return {};
+  try {
+    return JSON.parse(body);
+  } catch {
+    throw new ValidationError("Invalid JSON body");
+  }
+}
+
+function readRawBody(req, maxBytes = MAX_UPLOAD_BYTES) {
+  return collectBody(req, maxBytes, "Uploaded file is too large");
 }
 
 function parseMultipartFile(body, boundary) {
@@ -1342,6 +1519,89 @@ function createBackupArchive(docs) {
   }
 
   return createZip(entries);
+}
+
+// A timestamp-independent fingerprint of what a backup would contain, so we can
+// skip writing a new archive when nothing has changed since the last one.
+function backupSignature(docs) {
+  let signature = String(crc32(Buffer.from(JSON.stringify(docs), "utf8")));
+  if (fs.existsSync(UPLOADS_DIR)) {
+    const files = fs
+      .readdirSync(UPLOADS_DIR, { withFileTypes: true })
+      .filter((entry) => entry.isFile())
+      .map((entry) => {
+        const stat = fs.statSync(path.join(UPLOADS_DIR, entry.name));
+        return `${entry.name}:${stat.size}:${stat.mtimeMs}`;
+      })
+      .sort();
+    signature += `|${files.join(",")}`;
+  }
+  return signature;
+}
+
+function listBackups() {
+  if (!fs.existsSync(BACKUP_DIR)) return [];
+  return fs
+    .readdirSync(BACKUP_DIR, { withFileTypes: true })
+    .filter((entry) => entry.isFile() && BACKUP_FILE_PATTERN.test(entry.name))
+    .map((entry) => {
+      const stat = fs.statSync(path.join(BACKUP_DIR, entry.name));
+      return { filename: entry.name, size: stat.size, createdAt: stat.mtime.toISOString() };
+    })
+    // Filenames embed an ISO timestamp, so lexicographic order is chronological.
+    .sort((a, b) => b.filename.localeCompare(a.filename));
+}
+
+// Delete the oldest archives, keeping the `keep` most recent. Returns removed names.
+function pruneBackups(keep = BACKUP_KEEP) {
+  const removed = [];
+  for (const item of listBackups().slice(keep)) {
+    try {
+      fs.unlinkSync(path.join(BACKUP_DIR, item.filename));
+      removed.push(item.filename);
+    } catch (error) {
+      console.error(`[backup] Failed to prune ${item.filename}: ${error.message}`);
+    }
+  }
+  return removed;
+}
+
+let lastBackupSignature = null;
+
+// Write a full zip backup (docs + markdown + uploads) into BACKUP_DIR, then prune
+// old ones. Skips writing when content is unchanged unless `force` is set.
+function writeAutoBackup({ force = false } = {}) {
+  if (!fs.existsSync(BACKUP_DIR)) fs.mkdirSync(BACKUP_DIR, { recursive: true });
+  const docs = readDocs();
+  const signature = backupSignature(docs);
+  if (!force && signature === lastBackupSignature) {
+    return null;
+  }
+
+  const archive = createBackupArchive(docs);
+  const stamp = new Date().toISOString().replace(/[:.]/g, "-");
+  let filename = `daas-v3-backup-${stamp}.zip`;
+  let counter = 1;
+  while (fs.existsSync(path.join(BACKUP_DIR, filename))) {
+    filename = `daas-v3-backup-${stamp}-${counter}.zip`;
+    counter += 1;
+  }
+
+  writeFileAtomic(path.join(BACKUP_DIR, filename), archive);
+  lastBackupSignature = signature;
+  const pruned = pruneBackups();
+  return { filename, size: archive.length, createdAt: new Date().toISOString(), pruned };
+}
+
+function runAutoBackup() {
+  try {
+    const result = writeAutoBackup();
+    if (result) {
+      console.log(`[backup] Wrote ${result.filename} (${result.size} bytes)`);
+    }
+  } catch (error) {
+    console.error("[backup] Automatic backup failed:", error);
+  }
 }
 
 function createStaticSiteArchive(docs) {

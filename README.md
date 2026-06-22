@@ -140,13 +140,55 @@ DaaS V3 intentionally avoids external infrastructure for now:
 - No payment gateway.
 - No hosted deployment pipeline.
 
-This keeps the MVP simple and fast to iterate. For multi-user or production use, the next hardening steps are:
+This keeps the MVP simple and fast to iterate.
 
-- Add safer concurrent write handling.
-- Add automatic zip backups including uploads.
+Recent hardening:
+
+- **Crash-safe writes.** `docs.json` and `audit.json` are written atomically (temp file + `fsync` + rename), so a crash mid-write can never leave a half-written, corrupt database.
+- **Automatic recovery.** Before each save, the current `docs.json` is snapshotted to `docs.json.bak`. If the main file is ever unreadable, it is restored from the backup on the next read (the bad file is kept aside as `docs.json.corrupt.<timestamp>`) instead of failing every request.
+- **Validation errors return 4xx.** Bad input (unknown section, invalid parent, slug collision, malformed JSON) now returns a JSON `400`/`409` instead of an HTML `500`, and unexpected errors no longer leak stack traces to clients.
+- **Request limits.** JSON request bodies are capped at 5 MB and uploads at 10 MB (returning `413` instead of growing memory unbounded). Uploaded files are restricted to image types (`.png`, `.jpg`, `.jpeg`, `.gif`, `.webp`, `.svg`); anything else is rejected with `400`.
+
+- **Automatic backups.** A full zip backup (`docs.json` + Markdown export + everything in `public/uploads/`) is written to `data/backups/` on startup and every 6 hours. Identical content is not re-archived, and only the newest backups are kept.
+
+For multi-user or production use, the remaining hardening steps are:
+
 - Add authentication.
-- Add tests around import/export and publish flows.
 - Add a database layer when collaboration becomes necessary.
+
+### Backups
+
+| What | Where |
+| --- | --- |
+| Automatic, rotated zip backups | `data/backups/` |
+| Crash-recovery snapshot of `docs.json` | `data/docs.json.bak` |
+| On-demand download | "Export ZIP" in the editor, or `GET /api/export/zip` |
+
+Backup behavior is configurable via environment variables:
+
+- `DAAS_BACKUP_INTERVAL_MS` — milliseconds between automatic backups (default `21600000` = 6h; set `0` to disable).
+- `DAAS_BACKUP_KEEP` — number of automatic backups to retain (default `10`).
+- `DAAS_BACKUP_DIR` — override where automatic backups are stored.
+
+You can also trigger a backup on demand with `POST /api/backups/run` and list existing ones with `GET /api/backups`.
+
+## Testing
+
+Tests use Node's built-in test runner — no extra dependencies.
+
+```bash
+npm test
+```
+
+- `test/unit.test.js` covers the pure logic: slug/tag normalization, Markdown export/import round-trips, page ordering, broken-link detection, scheduled publishing, and the atomic-write / backup-recovery data layer.
+- `test/integration.test.js` boots the real HTTP server on an ephemeral port against an isolated data directory and exercises the create → save → publish → export → delete lifecycle.
+
+Tests are isolated via the `DAAS_DATA_DIR` environment variable, which overrides where `docs.json` and `audit.json` live. Set it to run the app against a scratch data directory:
+
+```powershell
+$env:DAAS_DATA_DIR="C:\tmp\daas-data"
+node server.js
+```
 
 ## Scripts
 

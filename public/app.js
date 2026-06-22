@@ -1744,11 +1744,16 @@ async function uploadImageFile(file, fallbackName) {
   });
 
   if (!response.ok) {
+    const serverMessage = await response
+      .json()
+      .then((data) => data && data.error)
+      .catch(() => null);
+    const message = serverMessage || "Gagal upload gambar.";
     await openAlertModal({
       title: "Upload Failed",
-      message: "Gagal upload gambar.",
+      message,
     });
-    throw new Error("Gagal upload gambar.");
+    throw new Error(message);
   }
 
   const data = await response.json();

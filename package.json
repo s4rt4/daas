@@ -5,6 +5,7 @@
   "description": "Local-first docs builder MVP",
   "scripts": {
     "dev": "node server.js",
-    "start": "node server.js"
+    "start": "node server.js",
+    "test": "node --test \"test/**/*.test.js\""
   }
 }
